@@ -1,0 +1,5 @@
+{"kind": "header", "protocol": "modbus_rtu", "address": 1, "baudrate": 9600, "parity": "even", "port": "fake://pm3-modbus"}
+{"protocol": "modbus_rtu", "label": "read_pv", "method": "read_holding_registers", "address": 360, "count": 2, "response_words": [17348, 0]}
+{"protocol": "modbus_rtu", "label": "read_setpoint", "method": "read_holding_registers", "address": 2160, "count": 2, "response_words": [17348, 0]}
+{"protocol": "modbus_rtu", "label": "write_setpoint", "method": "write_registers", "address": 2160, "count": 2, "values": [17348, 0]}
+{"protocol": "modbus_rtu", "label": "read_hardware_id", "method": "read_holding_registers", "address": 0, "count": 2, "response_words": [0, 28]}

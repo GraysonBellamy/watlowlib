@@ -1,0 +1,6 @@
+{"kind": "header", "protocol": "stdbus", "address": 1, "baudrate": 38400, "parity": "none", "port": "fake://pm3-stdbus", "device": "PM3R1CA-AAAAAAA"}
+{"protocol": "stdbus", "label": "read_pv", "request_hex": "55FF0510000006E8010301040101E399", "response_hex": "55FF060010000B8802030104010108451E3CD4A728"}
+{"protocol": "stdbus", "label": "write_setpoint", "request_hex": "55FF051000000AEC01040701010843C40000EB77", "response_hex": "55FF060010000A7602040701010843C400008203"}
+{"protocol": "stdbus", "label": "read_setpoint", "request_hex": "55FF0510000006E80103010701018776", "response_hex": "55FF060010000B880203010701010843C40000339A"}
+{"protocol": "stdbus", "label": "read_hardware_id", "request_hex": "55FF0510000006E80103010101015EA0", "response_hex": "55FF060010000B88020301010101060000001C5666"}
+{"protocol": "stdbus", "label": "read_part_number", "request_hex": "55FF0510000006E80103010109019E6E", "response_hex": "55FF0600100018780203010109010910504D33523143412D41414141414141000AB4"}

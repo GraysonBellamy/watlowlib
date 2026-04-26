@@ -1,0 +1,119 @@
+[project]
+site_name = "watlowlib"
+site_description = "Python library for Watlow temperature controllers (Standard Bus and Modbus RTU over serial)."
+site_url = "https://GraysonBellamy.github.io/watlowlib/"
+repo_url = "https://github.com/GraysonBellamy/watlowlib"
+repo_name = "GraysonBellamy/watlowlib"
+edit_uri = "edit/main/docs/"
+docs_dir = "docs"
+site_dir = "site"
+nav = [
+    { Home = "index.md" },
+    { Installation = "installation.md" },
+    { Quickstart = [
+        { Async = "quickstart-async.md" },
+        { Sync = "quickstart-sync.md" },
+    ] },
+    { Guides = [
+        { Controllers = "devices.md" },
+        { Commands = "commands.md" },
+        { Parameters = "parameters.md" },
+        { Streaming = "streaming.md" },
+        { "Logging and acquisition" = "logging.md" },
+        { Testing = "testing.md" },
+        { Safety = "safety.md" },
+        { Troubleshooting = "troubleshooting.md" },
+    ] },
+    { Reference = [
+        { "Standard Bus protocol" = "protocol-stdbus.md" },
+        { "Standard Bus findings" = "protocol-stdbus-findings.md" },
+        { "Modbus RTU mapping" = "protocol-modbus.md" },
+    ] },
+    { "API reference" = [
+        { Overview = "api/index.md" },
+        { "watlowlib" = "api/watlowlib.md" },
+        { "watlowlib.transport" = "api/transport.md" },
+        { "watlowlib.protocol" = "api/protocol.md" },
+        { "watlowlib.commands" = "api/commands.md" },
+        { "watlowlib.devices" = "api/devices.md" },
+        { "watlowlib.manager" = "api/manager.md" },
+        { "watlowlib.streaming" = "api/streaming.md" },
+        { "watlowlib.sinks" = "api/sinks.md" },
+        { "watlowlib.sync" = "api/sync.md" },
+        { "watlowlib.registry" = "api/registry.md" },
+        { "watlowlib.testing" = "api/testing.md" },
+        { "watlowlib.errors" = "api/errors.md" },
+        { "watlowlib.firmware" = "api/firmware.md" },
+        { "watlowlib.config" = "api/config.md" },
+        { "watlowlib.maintenance" = "api/maintenance.md" },
+    ] },
+    { Design = "design.md" },
+]
+
+[project.theme]
+variant = "classic"
+features = [
+    "content.code.copy",
+    "content.code.annotate",
+    "navigation.instant",
+    "navigation.tracking",
+    "navigation.sections",
+    "navigation.indexes",
+    "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "deep orange"
+accent = "orange"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "deep orange"
+accent = "orange"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.plugins.mkdocstrings]
+default_handler = "python"
+
+[project.plugins.mkdocstrings.handlers.python]
+paths = ["src"]
+
+[project.plugins.mkdocstrings.handlers.python.options]
+docstring_style = "google"
+show_source = true
+show_root_heading = true
+merge_init_into_class = true
+separate_signature = true
+
+[project.markdown_extensions.admonition]
+
+[project.markdown_extensions.attr_list]
+
+[project.markdown_extensions.md_in_html]
+
+[project.markdown_extensions.pymdownx.details]
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+
+[project.markdown_extensions.pymdownx.inlinehilite]
+
+[project.markdown_extensions.pymdownx.snippets]
+base_path = [".", "docs"]
+check_paths = true
+
+[project.markdown_extensions.pymdownx.superfences]
+
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+
+[project.markdown_extensions.tables]
+
+[project.markdown_extensions.toc]
+permalink = true
