@@ -16,6 +16,7 @@ import argparse
 import json
 import sys
 from dataclasses import asdict
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from watlowlib.protocol.stdbus.framing import FrameError, decode_frame
@@ -48,7 +49,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--file",
         "-f",
-        type=argparse.FileType("r", encoding="utf-8"),
         help="Read hex bytes from a file instead of stdin.",
     )
     parser.add_argument(
@@ -91,7 +91,8 @@ def _read_input(args: argparse.Namespace) -> str:
     if args.hex:
         return str(args.hex)
     if args.file is not None:
-        return str(args.file.read())
+        with Path(args.file).open(encoding="utf-8") as fh:
+            return fh.read()
     if sys.stdin.isatty():
         sys.stderr.write("watlow-decode: reading hex from stdin (Ctrl-D to end)\n")
     return sys.stdin.read()
