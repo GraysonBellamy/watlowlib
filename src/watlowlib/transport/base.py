@@ -179,11 +179,13 @@ class SerialSettings:
     setting. ``exclusive`` defaults ``True`` because Standard Bus is
     poll/response and won't tolerate a second writer.
 
-    Constructor accepts ``int``/``str`` shorthand for the framing fields
-    (``bytesize=8``, ``parity="none"``, ``stopbits=1``); the
-    ``__post_init__`` normalises to the enum and raises
-    :class:`watlowlib.errors.WatlowConfigurationError` on anything the
-    coercer can't recognise. The static types stay strict.
+    The ``__post_init__`` accepts ``int`` / ``float`` / ``str`` shorthand
+    at runtime for the framing fields (``bytesize=8``, ``parity="none"``,
+    ``stopbits=1``) and normalises to the enum. The static field types
+    are the enums themselves so ``mypy --strict`` users must pass
+    :class:`anyserial.ByteSize` / :class:`anyserial.Parity` /
+    :class:`anyserial.StopBits` directly; the runtime shorthand is
+    primarily for CLI argument parsing and interactive scripts.
     """
 
     port: str

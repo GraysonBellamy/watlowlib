@@ -33,7 +33,17 @@ _logger = get_logger("sinks.csv")
 
 
 class CsvSink:
-    """Append-only CSV writer with first-batch schema lock.
+    """Single-run CSV writer with first-batch schema lock.
+
+    Each :meth:`open` truncates the destination and writes a fresh
+    header on the first :meth:`write_many`. Cross-run appending is
+    intentionally **not** supported: the column set is inferred from
+    the first batch and locked for the run, and a re-open against an
+    existing file with a different column shape would silently produce
+    a CSV with mismatched columns. For append semantics, use
+    :class:`~watlowlib.sinks.jsonl.JsonlSink` (no schema to coordinate)
+    or :class:`~watlowlib.sinks.sqlite.SqliteSink` (schema captured in
+    the table).
 
     Attributes:
         path: Destination file. Created or overwritten on :meth:`open`.
@@ -59,7 +69,11 @@ class CsvSink:
         return self._columns
 
     async def open(self) -> None:
-        """Open the CSV file for writing. Overwrites any existing file."""
+        """Open the CSV file for writing.
+
+        Truncates any existing file: the first :meth:`write_many` will
+        write a fresh header row. Idempotent on already-open sinks.
+        """
         if self._file is not None:
             return
         self._file = self._path.open("w", encoding="utf-8", newline="")

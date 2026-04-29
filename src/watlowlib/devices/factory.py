@@ -145,7 +145,7 @@ async def open_controller(
             "open_device (which runs the detector and returns a built Controller).",
             context=ErrorContext(port=transport.label),
         )
-    client = make_protocol_client(protocol, transport, address=address)
+    client = make_protocol_client(protocol, transport)
     session = Session(
         client,
         registry=PARAMETERS,

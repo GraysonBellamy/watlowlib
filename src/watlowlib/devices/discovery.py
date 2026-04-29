@@ -206,7 +206,7 @@ async def _probe_address(
     client on exit so the next address starts with a clean dispatch
     state.
     """
-    client = make_protocol_client(protocol, transport, address=address)
+    client = make_protocol_client(protocol, transport)
     session = Session(
         client,
         registry=PARAMETERS,

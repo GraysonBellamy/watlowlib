@@ -11,6 +11,7 @@ from watlowlib import (
     WatlowConfigurationError,
     WatlowConnectionError,
     WatlowManager,
+    WatlowTimeoutError,
     WatlowValidationError,
     open_controller,
 )
@@ -200,6 +201,78 @@ async def test_port_lock_allows_same_protocol(anyio_backend: object) -> None:
             assert ctl1.session.client is ctl2.session.client
     finally:
         await transport.close()
+
+
+@pytest.mark.anyio
+async def test_multi_drop_dst_byte_per_address(anyio_backend: object) -> None:
+    """Regression: two managed controllers on one port must produce distinct dst MACs.
+
+    Before the multi-drop fix, the shared :class:`StdBusProtocolClient`
+    baked the first device's address into ``_dst_mac`` at construction
+    time, so the second device's reads silently went to the first
+    address. This test verifies every wire frame carries the calling
+    session's own address.
+    """
+    _ = anyio_backend
+    captured: list[bytes] = []
+
+    class _CaptureTransport:
+        label = "fake://multi-drop-capture"
+
+        def __init__(self) -> None:
+            self._open = False
+
+        @property
+        def is_open(self) -> bool:
+            return self._open
+
+        async def open(self) -> None:
+            self._open = True
+
+        async def close(self) -> None:
+            self._open = False
+
+        async def write(self, data: bytes, *, timeout: float) -> None:
+            _ = timeout
+            captured.append(bytes(data))
+
+        async def read_exact(self, n: int, *, timeout: float) -> bytes:
+            _ = n, timeout
+            # No reply scripted — surface as the typed transport-layer
+            # timeout. We only care about what was *written*; the read
+            # side just needs to bail cleanly so the test finishes.
+            raise WatlowTimeoutError("no reply scripted")
+
+        async def read_available(
+            self, *, idle_timeout: float, max_bytes: int | None = None
+        ) -> bytes:
+            _ = idle_timeout, max_bytes
+            return b""
+
+        async def drain_input(self) -> None:
+            pass
+
+    transport = _CaptureTransport()
+    async with WatlowManager() as mgr:
+        ctl1 = await mgr.add("c1", transport, protocol=ProtocolKind.STDBUS, address=1)
+        ctl2 = await mgr.add("c2", transport, protocol=ProtocolKind.STDBUS, address=2)
+        # Sanity: shared client (port lock invariant), distinct sessions.
+        assert ctl1.session.client is ctl2.session.client
+        assert ctl1.session.address == 1
+        assert ctl2.session.address == 2
+
+        # The capture transport always raises on read; we only care
+        # about the bytes that were *written*, not the error itself.
+        with pytest.raises(WatlowTimeoutError):
+            await ctl1.read_pv(timeout=0.05)
+        with pytest.raises(WatlowTimeoutError):
+            await ctl2.read_pv(timeout=0.05)
+
+    # BACnet MS/TP layout: 0x55 0xFF, frame_type, dst, src, ...
+    # ``addr_to_mac`` maps address N → 0x0F + N.
+    assert len(captured) == 2
+    assert captured[0][3] == 0x10  # address 1
+    assert captured[1][3] == 0x11  # address 2
 
 
 @pytest.mark.anyio

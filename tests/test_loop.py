@@ -209,8 +209,7 @@ def _build_modbus_controller(slave: _ScriptedSlave) -> Controller:
 
     transport = _StubBusTransport()
     client = ModbusProtocolClient(
-        slave_provider=lambda: slave,
-        address=1,
+        slave_provider=lambda _addr: slave,
         port=transport.label,
     )
     session = Session(

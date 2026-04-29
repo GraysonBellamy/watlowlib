@@ -235,18 +235,19 @@ def _patch_factory(monkeypatch: pytest.MonkeyPatch, fakes: _SweepFakes) -> None:
 
     monkeypatch.setattr(modbus_transport_mod, "ModbusBusTransport", _PatchedBus)
 
-    # Wrap make_protocol_client to record which address was opened so
+    # Wrap _probe_address to record which address was probed so
     # tests can assert the sweep walked the expected address range.
-    import watlowlib.protocol.client as client_mod
+    # (Post multi-drop fix, ``make_protocol_client`` no longer sees
+    # the address — clients are address-agnostic.) Reach in via
+    # ``getattr`` so pyright doesn't flag the private-name access; the
+    # same indirection lands in ``monkeypatch.setattr`` below.
+    real_probe = getattr(discovery, "_probe_address")  # noqa: B009
 
-    real_make = client_mod.make_protocol_client
+    async def _record_then_probe(*args: Any, **kwargs: Any) -> Any:
+        fakes.seen_addresses.append(kwargs["address"])
+        return await real_probe(*args, **kwargs)
 
-    def _record_then_make(kind: ProtocolKind, transport: Any, *, address: int) -> Any:
-        fakes.seen_addresses.append(address)
-        return real_make(kind, transport, address=address)
-
-    monkeypatch.setattr(factory, "make_protocol_client", _record_then_make)
-    monkeypatch.setattr(discovery, "make_protocol_client", _record_then_make)
+    monkeypatch.setattr(discovery, "_probe_address", _record_then_probe)
 
 
 # --- Std Bus sweep ---------------------------------------------------

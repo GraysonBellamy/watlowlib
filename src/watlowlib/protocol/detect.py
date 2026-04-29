@@ -102,9 +102,10 @@ class ResolvedProtocol:
 async def probe_stdbus(
     client: ProtocolClient[bytes, StdBusReply],
     *,
+    address: int,
     timeout: float,
 ) -> bool:
-    """Run the Std Bus probe through ``client``.
+    """Run the Std Bus probe through ``client`` against ``address``.
 
     Returns ``True`` if the device replies with any structurally valid
     Std Bus frame (read response, write response, or error response).
@@ -115,6 +116,7 @@ async def probe_stdbus(
     try:
         await client.execute(
             payload,
+            address=address,
             timeout=timeout,
             command_name="auto_detect:stdbus",
         )
@@ -132,9 +134,10 @@ async def probe_stdbus(
 async def probe_modbus(
     client: ProtocolClient[ModbusOp, tuple[int, ...]],
     *,
+    address: int,
     timeout: float,
 ) -> bool:
-    """Run the Modbus probe through ``client``.
+    """Run the Modbus probe through ``client`` against ``address``.
 
     Returns ``True`` if the slave replies — either with valid register
     words *or* with a Modbus exception response. A CRC-correct
@@ -149,7 +152,12 @@ async def probe_modbus(
         count=_PROBE_REGISTER_COUNT,
     )
     try:
-        await client.execute(op, timeout=timeout, command_name="auto_detect:modbus")
+        await client.execute(
+            op,
+            address=address,
+            timeout=timeout,
+            command_name="auto_detect:modbus",
+        )
     except WatlowProtocolUnsupportedError as exc:
         # IllegalFunction / IllegalDataAddress: a CRC-correct exception
         # response. The slave is speaking Modbus.
@@ -247,8 +255,8 @@ async def _try_stdbus(
     try:
         await transport.open()
         await transport.drain_input()
-        client = StdBusProtocolClient(transport, address=address)
-        if await probe_stdbus(client, timeout=timeout):
+        client = StdBusProtocolClient(transport)
+        if await probe_stdbus(client, address=address, timeout=timeout):
             _log.info("auto-detect: stdbus confirmed on %s", settings.port)
             handed_off = True
             return ResolvedProtocol(
@@ -287,11 +295,10 @@ async def _try_modbus(
     try:
         await transport.open()
         client = ModbusProtocolClient(
-            slave_provider=lambda: transport.bus.slave(address),
-            address=address,
+            slave_provider=transport.bus.slave,
             port=transport.label,
         )
-        if await probe_modbus(client, timeout=timeout):
+        if await probe_modbus(client, address=address, timeout=timeout):
             _log.info("auto-detect: modbus confirmed on %s", settings.port)
             handed_off = True
             return ResolvedProtocol(

@@ -142,7 +142,11 @@ async def _run_stdbus(args: argparse.Namespace) -> dict[str, Any]:
     async with controller as ctl:
         client = ctl.session.client
         async with client.lock:
-            reply: StdBusReply = await client.execute(payload, command_name="watlow-raw:stdbus")
+            reply: StdBusReply = await client.execute(
+                payload,
+                address=ctl.session.address,
+                command_name="watlow-raw:stdbus",
+            )
     return {
         "service": args.service,
         "parameter_id": parameter_id,
@@ -176,7 +180,11 @@ async def _run_modbus(args: argparse.Namespace) -> dict[str, Any]:
         session: Session = ctl.session
         client = session.client
         async with client.lock:
-            words = await client.execute(op, command_name="watlow-raw:modbus")
+            words = await client.execute(
+                op,
+                address=session.address,
+                command_name="watlow-raw:modbus",
+            )
     return {
         "fn": fn.value,
         "register": op.address,

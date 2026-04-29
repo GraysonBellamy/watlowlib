@@ -84,10 +84,16 @@ class ProtocolClient[Request_contra, Reply_co](Protocol):
         self,
         request: Request_contra,
         *,
+        address: int,
         timeout: float | None = None,
         command_name: str = "",
     ) -> Reply_co:
-        """Send ``request``, return the typed reply.
+        """Send ``request`` to ``address``, return the typed reply.
+
+        ``address`` travels with every call so one client can serve
+        multiple devices on a multi-drop RS-485 segment without
+        re-construction. Std Bus accepts ``1..16``, Modbus RTU accepts
+        ``1..247``.
 
         ``timeout`` overrides :attr:`watlowlib.config.DEFAULTS.io_timeout_s`
         for this call only. ``command_name`` is threaded into log

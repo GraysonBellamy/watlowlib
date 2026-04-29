@@ -64,12 +64,13 @@ class SlaveLike(Protocol):
 
 
 #: Callable that produces a live :class:`anymodbus.Slave` (or any
-#: structurally-compatible stand-in — see :class:`SlaveLike`). The
-#: provider is invoked on every :meth:`ModbusProtocolClient.execute`
-#: so the lifetime of the underlying :class:`anymodbus.Bus` is owned
-#: by the caller (typically the :class:`ModbusBusTransport`), not the
-#: client.
-type SlaveProvider = Callable[[], SlaveLike]
+#: structurally-compatible stand-in — see :class:`SlaveLike`) for a
+#: given bus address. The provider is invoked on every
+#: :meth:`ModbusProtocolClient.execute` with that call's address, so
+#: one client can serve every slave on a multi-drop bus. Lifetime of
+#: the underlying :class:`anymodbus.Bus` is owned by the caller
+#: (typically the :class:`ModbusBusTransport`), not the client.
+type SlaveProvider = Callable[[int], SlaveLike]
 
 _log = get_logger("modbus")
 
@@ -77,14 +78,17 @@ _log = get_logger("modbus")
 class ModbusProtocolClient:
     """:class:`ProtocolClient` for Modbus RTU.
 
+    The client is **address-agnostic**: ``execute`` takes the slave
+    address per-call so one client can serve every device on a
+    multi-drop bus. The ``slave_provider`` receives that address and
+    returns the live :class:`Slave`.
+
     Args:
-        slave_provider: Callable returning a live :class:`Slave`. In
-            production the provider closes over the
+        slave_provider: Callable mapping address → live :class:`Slave`.
+            In production the provider closes over the
             :class:`ModbusBusTransport` and returns
             ``transport.bus.slave(address)``; in tests it returns a
             stub.
-        address: Bus address (1..247). Stored for error context only —
-            the slave provider already knows its address.
         port: Transport label, threaded into log events / error
             contexts.
     """
@@ -93,19 +97,9 @@ class ModbusProtocolClient:
         self,
         slave_provider: SlaveProvider,
         *,
-        address: int,
         port: str = "",
     ) -> None:
-        if address < 1 or address > 247:
-            from watlowlib.errors import WatlowConfigurationError  # noqa: PLC0415
-
-            msg = f"Modbus address {address} out of range (1..247)"
-            raise WatlowConfigurationError(
-                msg,
-                context=ErrorContext(port=port or None, address=address),
-            )
         self._slave_provider = slave_provider
-        self._address = address
         self._port = port
         self._lock = anyio.Lock()
         self._disposed = False
@@ -125,11 +119,6 @@ class ModbusProtocolClient:
         """Wire protocol kind served by this client."""
         return ProtocolKind.MODBUS_RTU
 
-    @property
-    def address(self) -> int:
-        """The Modbus slave address (1..247) this client targets."""
-        return self._address
-
     def dispose(self) -> None:
         """Mark this client unusable for future ``execute`` calls."""
         self._disposed = True
@@ -138,10 +127,11 @@ class ModbusProtocolClient:
         self,
         request: ModbusOp,
         *,
+        address: int,
         timeout: float | None = None,
         command_name: str = "",
     ) -> tuple[int, ...]:
-        """Run ``request`` and return the raw register tuple.
+        """Run ``request`` against ``address`` and return the raw register tuple.
 
         Reads return the read words; writes return ``()`` so callers
         downstream can treat reads and writes uniformly.
@@ -149,6 +139,8 @@ class ModbusProtocolClient:
         Args:
             request: The typed Modbus operation produced by a
                 :class:`ModbusVariant`.
+            address: Modbus slave address (``1..247``). Validated
+                eagerly before any I/O.
             timeout: Per-call override of
                 :attr:`watlowlib.config.DEFAULTS.io_timeout_s`. Bound
                 via :func:`anyio.fail_after` around the dispatch so
@@ -157,21 +149,30 @@ class ModbusProtocolClient:
             command_name: Threaded into log events for traceability.
 
         Raises:
+            WatlowConfigurationError: ``address`` is outside ``1..247``.
             WatlowConnectionError: client is disposed or the underlying
                 :class:`anymodbus.Bus` has been closed.
             WatlowModbusError: a Modbus-layer exception (mapped via
                 :func:`remap_modbus_exception`).
         """
+        if address < 1 or address > 247:
+            from watlowlib.errors import WatlowConfigurationError  # noqa: PLC0415
+
+            msg = f"Modbus address {address} out of range (1..247)"
+            raise WatlowConfigurationError(
+                msg,
+                context=self._error_context(command_name, request, address=address),
+            )
         if self._disposed:
             raise WatlowConnectionError(
                 "ModbusProtocolClient is disposed",
-                context=self._error_context(command_name, request),
+                context=self._error_context(command_name, request, address=address),
             )
 
         bound = timeout if timeout is not None else DEFAULTS.io_timeout_s
 
         try:
-            slave = self._slave_provider()
+            slave = self._slave_provider(address)
         except WatlowError:
             # The provider itself surfaced a typed error (e.g. transport
             # not open). Let it propagate untouched.
@@ -179,7 +180,7 @@ class ModbusProtocolClient:
         except Exception as exc:
             raise remap_modbus_exception(
                 exc,
-                context=self._error_context(command_name, request),
+                context=self._error_context(command_name, request, address=address),
             ) from exc
 
         try:
@@ -189,21 +190,21 @@ class ModbusProtocolClient:
             from watlowlib.errors import WatlowTimeoutError  # noqa: PLC0415
 
             raise WatlowTimeoutError(
-                f"Modbus {request.fn.value} on addr={self._address} timed out after {bound}s",
-                context=self._error_context(command_name, request),
+                f"Modbus {request.fn.value} on addr={address} timed out after {bound}s",
+                context=self._error_context(command_name, request, address=address),
             ) from exc
         except WatlowError:
             raise
         except Exception as exc:
             raise remap_modbus_exception(
                 exc,
-                context=self._error_context(command_name, request),
+                context=self._error_context(command_name, request, address=address),
             ) from exc
 
         _log.debug(
             "modbus exec ok cmd=%s addr=%d fn=%s reg=%d count=%d",
             command_name or "<anon>",
-            self._address,
+            address,
             request.fn.value,
             request.address,
             request.count,
@@ -232,7 +233,13 @@ class ModbusProtocolClient:
         await slave.write_registers(op.address, op.values)
         return ()
 
-    def _error_context(self, command_name: str, op: ModbusOp) -> ErrorContext:
+    def _error_context(
+        self,
+        command_name: str,
+        op: ModbusOp,
+        *,
+        address: int,
+    ) -> ErrorContext:
         # Map ModbusFn to its anymodbus FunctionCode integer for richer
         # error introspection. Done here (not in ModbusOp) so the op
         # stays a pure description and doesn't pull anymodbus.
@@ -252,7 +259,7 @@ class ModbusProtocolClient:
             command_name=command_name or None,
             protocol=ProtocolKind.MODBUS_RTU,
             port=self._port or None,
-            address=self._address,
+            address=address,
             register_address=op.address,
             function_code=fn_code,
         )

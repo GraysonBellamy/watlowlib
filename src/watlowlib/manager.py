@@ -4,7 +4,10 @@ The manager coordinates many :class:`~watlowlib.devices.controller.Controller`
 instances across one or more serial ports. Operations on different
 physical ports run concurrently through :func:`anyio.create_task_group`;
 operations on the same port serialise through that port's shared
-:class:`~watlowlib.protocol.base.ProtocolClient` lock.
+:class:`~watlowlib.protocol.base.ProtocolClient` lock. The shared client
+is **address-agnostic** — each managed controller's :class:`Session`
+passes its own bus address into every ``execute`` call, so multi-drop
+RS-485 segments with two or more devices work correctly.
 
 Port identity is **canonicalised** before comparison so a controller
 referenced via both ``/dev/ttyUSB0`` and ``/dev/serial/by-id/...``
@@ -234,8 +237,13 @@ class WatlowManager:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        del exc_type, exc, tb
-        await self.close()
+        del exc_type, tb
+        # On the exit path, swallow teardown errors — the in-flight
+        # exception (if any) is what callers care about; the
+        # "manager.close_device_failed" log captures the cleanup
+        # detail. ``close()`` re-raises only when there is no
+        # in-flight exception.
+        await self._close(suppress_errors=exc is not None)
 
     # --------------------------------------------------------------- add/remove
 
@@ -358,10 +366,23 @@ class WatlowManager:
             ) from None
 
     async def close(self) -> None:
-        """Tear down every managed controller and port (LIFO)."""
+        """Tear down every managed controller and port (LIFO).
+
+        Per-device teardown errors are collected; if any occurred,
+        they are raised after the close completes as an
+        :class:`ExceptionGroup`. This makes explicit ``await mgr.close()``
+        calls fail loud on resource leaks. The async-CM exit path
+        swallows the errors instead so an in-flight exception still
+        wins (see :meth:`__aexit__`).
+        """
+        await self._close(suppress_errors=False)
+
+    async def _close(self, *, suppress_errors: bool) -> None:
+        """Internal close used by both :meth:`close` and :meth:`__aexit__`."""
         async with self._state_lock:
             if self._closed:
                 return
+            errors: list[BaseException] = []
             for name in reversed(list(self._devices.keys())):
                 entry = self._devices.pop(name)
                 try:
@@ -372,7 +393,10 @@ class WatlowManager:
                         name,
                         err,
                     )
+                    errors.append(err)
             self._closed = True
+            if errors and not suppress_errors:
+                raise BaseExceptionGroup("manager.close: teardown failures", errors)
 
     # ----------------------------------------------------------- concurrent I/O
 
@@ -631,11 +655,10 @@ class WatlowManager:
             await transport.open()
 
         if port_entry.client is None:
-            port_entry.client = make_protocol_client(
-                protocol,
-                transport,
-                address=address,
-            )
+            # The client is address-agnostic (one per port); each
+            # Session passes its own address into ``client.execute``,
+            # so multi-drop on the same RS-485 segment works correctly.
+            port_entry.client = make_protocol_client(protocol, transport)
             port_entry.protocol = protocol
 
         settings = serial_settings or SerialSettings(port=transport.label)

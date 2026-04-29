@@ -4,7 +4,10 @@
 :class:`~watlowlib.sinks.csv.CsvSink`, it doesn't lock a schema — each
 row stands alone, so a hot-plugged device whose row format adds an
 extra field simply emits a wider object without affecting earlier or
-later rows.
+later rows. Because there's no header to coordinate, the sink **opens
+in append mode**: pointing it at an existing file extends that file
+rather than overwriting it. Use a fresh path per run if you want
+isolated outputs.
 
 Stdlib-only — the core install pulls in no JSON dependencies.
 """
@@ -33,7 +36,8 @@ class JsonlSink:
     The on-disk format is ``<sample-row-as-json>\n`` per sample;
     reading back is just ``[json.loads(line) for line in f]``. No
     header, no schema declaration, no framing overhead beyond the
-    newline.
+    newline. Opening points at the same path twice extends the file —
+    useful for resumable acquisitions and crash-restart scripts.
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -46,10 +50,14 @@ class JsonlSink:
         return self._path
 
     async def open(self) -> None:
-        """Open the JSONL file for writing. Overwrites any existing file."""
+        """Open the JSONL file for writing in append mode.
+
+        Pre-existing content is preserved; new samples are appended.
+        Idempotent on already-open sinks.
+        """
         if self._file is not None:
             return
-        self._file = self._path.open("w", encoding="utf-8", newline="")
+        self._file = self._path.open("a", encoding="utf-8", newline="")
 
     async def write_many(self, samples: Sequence[Sample]) -> None:
         """Serialise each sample as one JSON object per line."""

@@ -248,8 +248,7 @@ async def controller_from_fixture(
     # FakeSlave is structurally compatible with the
     # :class:`SlaveLike` Protocol the Modbus client expects.
     client = ModbusProtocolClient(
-        slave_provider=lambda: slave,
-        address=fixture.address,
+        slave_provider=lambda _addr: slave,
         port=transport.label,
     )
     session = Session(

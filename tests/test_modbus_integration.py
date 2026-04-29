@@ -152,8 +152,7 @@ def _build_controller(slave: _ScriptedSlave) -> Controller:
     """Wire a stub Slave through the real :class:`Session` + :class:`Controller`."""
     transport = _StubBusTransport()
     client = ModbusProtocolClient(
-        slave_provider=lambda: slave,
-        address=1,
+        slave_provider=lambda _addr: slave,
         port=transport.label,
     )
     session = Session(

@@ -177,8 +177,14 @@ async def pipe(
     - the buffer reaches ``batch_size`` samples, or
     - ``flush_interval`` seconds have elapsed since the last flush.
 
-    On stream exhaustion any leftover buffer is flushed before the
-    summary is returned.
+    The time-based check fires on every incoming batch, so the actual
+    inter-flush latency is bounded below by the recorder's tick
+    period: ``effective_flush_period ≈ max(flush_interval,
+    1 / rate_hz)``. For low-rate acquisitions (rate_hz < 1 / flush_interval)
+    the recorder cadence dominates; for high-rate acquisitions the
+    configured ``flush_interval`` dominates. Either way, on stream
+    exhaustion any leftover buffer is flushed before the summary is
+    returned.
 
     The ``samples_late`` / ``max_drift_ms`` fields on the returned
     summary stay at zero — those are recorder-layer concepts. The

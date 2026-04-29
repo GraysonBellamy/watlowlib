@@ -100,14 +100,13 @@ def slave() -> StubSlave:
 
 @pytest.fixture
 def client(slave: StubSlave) -> ModbusProtocolClient:
-    return ModbusProtocolClient(lambda: slave, address=1, port="fake://test")
+    return ModbusProtocolClient(lambda _addr: slave, port="fake://test")
 
 
 @pytest.mark.anyio
-async def test_kind_and_address(anyio_backend: object, client: ModbusProtocolClient) -> None:
+async def test_kind(anyio_backend: object, client: ModbusProtocolClient) -> None:
     _ = anyio_backend
     assert client.kind is ProtocolKind.MODBUS_RTU
-    assert client.address == 1
     assert client.disposed is False
 
 
@@ -117,7 +116,7 @@ async def test_read_holding(
 ) -> None:
     _ = anyio_backend
     op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=2160, count=2)
-    words = await client.execute(op, command_name="read_setpoint")
+    words = await client.execute(op, address=1, command_name="read_setpoint")
     assert words == (0x43C4, 0x0000)
     assert slave.calls == [
         _Call("read_holding_registers", (2160,), {"count": 2}),
@@ -128,9 +127,9 @@ async def test_read_holding(
 async def test_read_input(anyio_backend: object) -> None:
     _ = anyio_backend
     slave = StubSlave(read_input_response=(0x0042,))
-    client = ModbusProtocolClient(lambda: slave, address=2)
+    client = ModbusProtocolClient(lambda _addr: slave)
     op = ModbusOp(fn=ModbusFn.READ_INPUT, address=100, count=1)
-    words = await client.execute(op)
+    words = await client.execute(op, address=2)
     assert words == (0x0042,)
     assert slave.calls == [
         _Call("read_input_registers", (100,), {"count": 1}),
@@ -143,7 +142,7 @@ async def test_write_register(
 ) -> None:
     _ = anyio_backend
     op = ModbusOp(fn=ModbusFn.WRITE_REGISTER, address=10, count=1, values=(0x1234,))
-    result = await client.execute(op)
+    result = await client.execute(op, address=1)
     assert result == ()
     assert slave.calls == [_Call("write_register", (10, 0x1234), {})]
 
@@ -159,7 +158,7 @@ async def test_write_registers(
         count=2,
         values=(0x43C4, 0x0000),
     )
-    result = await client.execute(op)
+    result = await client.execute(op, address=1)
     assert result == ()
     assert slave.calls == [_Call("write_registers", (2160, (0x43C4, 0x0000)), {})]
 
@@ -171,7 +170,25 @@ async def test_dispose_blocks_execute(anyio_backend: object, client: ModbusProto
     assert client.disposed is True
     op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=0, count=1)
     with pytest.raises(WatlowConnectionError):
-        await client.execute(op)
+        await client.execute(op, address=1)
+
+
+@pytest.mark.anyio
+async def test_slave_provider_receives_per_call_address(anyio_backend: object) -> None:
+    """The slave_provider gets the per-call address — not a constructor default."""
+    _ = anyio_backend
+    seen: list[int] = []
+    slave = StubSlave(read_holding_response=(0,))
+
+    def provider(addr: int) -> StubSlave:
+        seen.append(addr)
+        return slave
+
+    client = ModbusProtocolClient(provider)
+    op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=0, count=1)
+    await client.execute(op, address=3)
+    await client.execute(op, address=7)
+    assert seen == [3, 7]
 
 
 @pytest.mark.anyio
@@ -180,10 +197,10 @@ async def test_illegal_function_remaps_to_unsupported(
 ) -> None:
     _ = anyio_backend
     slave = StubSlave(raise_on=IllegalFunctionError)
-    client = ModbusProtocolClient(lambda: slave, address=1)
+    client = ModbusProtocolClient(lambda _addr: slave)
     op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=0, count=1)
     with pytest.raises(WatlowModbusIllegalFunctionError) as info:
-        await client.execute(op)
+        await client.execute(op, address=1)
     # And inherits the protocol-unsupported tag the session looks for.
     assert isinstance(info.value, WatlowProtocolUnsupportedError)
     # Original anymodbus exception preserved on __cause__.
@@ -196,10 +213,10 @@ async def test_illegal_data_address_remaps_to_unsupported(
 ) -> None:
     _ = anyio_backend
     slave = StubSlave(raise_on=IllegalDataAddressError)
-    client = ModbusProtocolClient(lambda: slave, address=1)
+    client = ModbusProtocolClient(lambda _addr: slave)
     op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=99999 % 0x10000, count=1)
     with pytest.raises(WatlowModbusIllegalDataAddressError) as info:
-        await client.execute(op)
+        await client.execute(op, address=1)
     assert isinstance(info.value, WatlowProtocolUnsupportedError)
 
 
@@ -209,10 +226,10 @@ async def test_illegal_data_value_does_not_unsupported(
 ) -> None:
     _ = anyio_backend
     slave = StubSlave(raise_on=IllegalDataValueError)
-    client = ModbusProtocolClient(lambda: slave, address=1)
+    client = ModbusProtocolClient(lambda _addr: slave)
     op = ModbusOp(fn=ModbusFn.WRITE_REGISTER, address=0, count=1, values=(0,))
     with pytest.raises(WatlowModbusIllegalDataValueError) as info:
-        await client.execute(op)
+        await client.execute(op, address=1)
     # Crucially NOT a WatlowProtocolUnsupportedError — bad value is not absence.
     assert not isinstance(info.value, WatlowProtocolUnsupportedError)
 
@@ -221,20 +238,26 @@ async def test_illegal_data_value_does_not_unsupported(
 async def test_slave_failure_does_not_unsupported(anyio_backend: object) -> None:
     _ = anyio_backend
     slave = StubSlave(raise_on=SlaveDeviceFailureError)
-    client = ModbusProtocolClient(lambda: slave, address=1)
+    client = ModbusProtocolClient(lambda _addr: slave)
     op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=0, count=1)
     with pytest.raises(WatlowModbusSlaveFailureError) as info:
-        await client.execute(op)
+        await client.execute(op, address=1)
     assert not isinstance(info.value, WatlowProtocolUnsupportedError)
 
 
-def test_address_validation() -> None:
+@pytest.mark.anyio
+async def test_address_validation_happens_per_call(anyio_backend: object) -> None:
+    """Address range is validated on every execute, not at construction."""
     from watlowlib.errors import WatlowConfigurationError
 
+    _ = anyio_backend
+    slave = StubSlave(read_holding_response=(0,))
+    client = ModbusProtocolClient(lambda _addr: slave)
+    op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=0, count=1)
     with pytest.raises(WatlowConfigurationError, match="out of range"):
-        ModbusProtocolClient(lambda: None, address=0)  # type: ignore[arg-type, return-value]
+        await client.execute(op, address=0)
     with pytest.raises(WatlowConfigurationError, match="out of range"):
-        ModbusProtocolClient(lambda: None, address=248)  # type: ignore[arg-type, return-value]
+        await client.execute(op, address=248)
 
 
 @dataclass
@@ -268,7 +291,7 @@ async def test_timeout_raises_watlow_timeout(anyio_backend: object) -> None:
 
     _ = anyio_backend
     slave = _NoOpSlave()
-    client = ModbusProtocolClient(lambda: slave, address=1)
+    client = ModbusProtocolClient(lambda _addr: slave)
     op = ModbusOp(fn=ModbusFn.READ_HOLDING, address=0, count=1)
     with pytest.raises(WatlowTimeoutError, match="timed out"):
-        await client.execute(op, timeout=0.05)
+        await client.execute(op, address=1, timeout=0.05)

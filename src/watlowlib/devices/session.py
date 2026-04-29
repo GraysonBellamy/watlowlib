@@ -92,7 +92,9 @@ class Session:
         that need to issue an unframed wire op outside the registry.
         Callers must acquire :attr:`ProtocolClient.lock` before
         :meth:`ProtocolClient.execute` to honour the per-port
-        serialization invariant.
+        serialization invariant, and must pass this session's
+        :attr:`address` (or another concrete address for multi-drop
+        diagnostics) to ``execute``.
         """
         return self._client
 
@@ -222,6 +224,7 @@ class Session:
             try:
                 reply = await self._client.execute(
                     wire_request,
+                    address=self._address,
                     timeout=bound_timeout,
                     command_name=command.name,
                 )
@@ -312,12 +315,17 @@ class Session:
         parameter id, so a ``read_parameter("foo")`` rejection
         doesn't poison ``read_parameter("bar")``. For everything else
         the key is the bare command name.
+
+        Falls back to the unresolved target on registry-lookup failure
+        (typo, alias miss). Programmer-error shapes (``AttributeError``,
+        ``TypeError`` from a malformed request object) are *not*
+        caught — they should surface, not silently degrade caching.
         """
         target = getattr(request, "name_or_id", None)
         if target is None:
             return command.name
         try:
             spec = self._registry.resolve(target)
-        except Exception:
+        except WatlowError:
             return f"{command.name}:{target}"
         return f"{command.name}:{spec.parameter_id}"

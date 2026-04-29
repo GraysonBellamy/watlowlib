@@ -91,8 +91,8 @@ async def test_probe_stdbus_accepts_valid_reply(anyio_backend: object) -> None:
     transport = FakeTransport({request: reply})
     await transport.open()
     try:
-        client = StdBusProtocolClient(transport, address=1)
-        assert await probe_stdbus(client, timeout=0.5) is True
+        client = StdBusProtocolClient(transport)
+        assert await probe_stdbus(client, address=1, timeout=0.5) is True
     finally:
         await transport.close()
 
@@ -108,8 +108,8 @@ async def test_probe_stdbus_accepts_error_response(anyio_backend: object) -> Non
     transport = FakeTransport({request: reply})
     await transport.open()
     try:
-        client = StdBusProtocolClient(transport, address=1)
-        assert await probe_stdbus(client, timeout=0.5) is True
+        client = StdBusProtocolClient(transport)
+        assert await probe_stdbus(client, address=1, timeout=0.5) is True
     finally:
         await transport.close()
 
@@ -121,8 +121,8 @@ async def test_probe_stdbus_rejects_silence(anyio_backend: object) -> None:
     transport = FakeTransport()  # no scripted replies
     await transport.open()
     try:
-        client = StdBusProtocolClient(transport, address=1)
-        assert await probe_stdbus(client, timeout=0.05) is False
+        client = StdBusProtocolClient(transport)
+        assert await probe_stdbus(client, address=1, timeout=0.05) is False
     finally:
         await transport.close()
 
@@ -136,8 +136,8 @@ async def test_probe_stdbus_rejects_garbage(anyio_backend: object) -> None:
     transport = FakeTransport({request: bytes([0xAA] * 300)})
     await transport.open()
     try:
-        client = StdBusProtocolClient(transport, address=1)
-        assert await probe_stdbus(client, timeout=0.5) is False
+        client = StdBusProtocolClient(transport)
+        assert await probe_stdbus(client, address=1, timeout=0.5) is False
     finally:
         await transport.close()
 
@@ -187,8 +187,8 @@ class _StubSlave:
 async def test_probe_modbus_accepts_valid_reply(anyio_backend: object) -> None:
     _ = anyio_backend
     slave = _StubSlave(reply=(0x0000, 0x0018))
-    client = ModbusProtocolClient(slave_provider=lambda: slave, address=1, port="fake://m")
-    assert await probe_modbus(client, timeout=0.5) is True
+    client = ModbusProtocolClient(slave_provider=lambda _addr: slave, port="fake://m")
+    assert await probe_modbus(client, address=1, timeout=0.5) is True
 
 
 @pytest.mark.anyio
@@ -196,24 +196,24 @@ async def test_probe_modbus_accepts_illegal_function(anyio_backend: object) -> N
     """A CRC-correct exception response also confirms Modbus framing."""
     _ = anyio_backend
     slave = _StubSlave(reply=IllegalFunctionError)
-    client = ModbusProtocolClient(slave_provider=lambda: slave, address=1, port="fake://m")
-    assert await probe_modbus(client, timeout=0.5) is True
+    client = ModbusProtocolClient(slave_provider=lambda _addr: slave, port="fake://m")
+    assert await probe_modbus(client, address=1, timeout=0.5) is True
 
 
 @pytest.mark.anyio
 async def test_probe_modbus_accepts_illegal_address(anyio_backend: object) -> None:
     _ = anyio_backend
     slave = _StubSlave(reply=IllegalDataAddressError)
-    client = ModbusProtocolClient(slave_provider=lambda: slave, address=1, port="fake://m")
-    assert await probe_modbus(client, timeout=0.5) is True
+    client = ModbusProtocolClient(slave_provider=lambda _addr: slave, port="fake://m")
+    assert await probe_modbus(client, address=1, timeout=0.5) is True
 
 
 @pytest.mark.anyio
 async def test_probe_modbus_rejects_timeout(anyio_backend: object) -> None:
     _ = anyio_backend
     slave = _StubSlave(reply=FrameTimeoutError)
-    client = ModbusProtocolClient(slave_provider=lambda: slave, address=1, port="fake://m")
-    assert await probe_modbus(client, timeout=0.5) is False
+    client = ModbusProtocolClient(slave_provider=lambda _addr: slave, port="fake://m")
+    assert await probe_modbus(client, address=1, timeout=0.5) is False
 
 
 # --- detect_protocol orchestration ----------------------------------

@@ -184,6 +184,49 @@ async def test_jsonl_sink_round_trip(
 
 
 @pytest.mark.anyio
+async def test_jsonl_sink_appends_across_opens(
+    anyio_backend: object,
+    tmp_path: Path,
+    sample_batch: list[Sample],
+) -> None:
+    """Re-opening an existing JSONL file extends it; pre-existing content survives."""
+    _ = anyio_backend
+    out = tmp_path / "out.jsonl"
+    out.write_text('{"prior": "row"}\n', encoding="utf-8")
+
+    async with JsonlSink(out) as sink:
+        await sink.write_many(sample_batch[:1])
+    async with JsonlSink(out) as sink:
+        await sink.write_many(sample_batch[1:])
+
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1 + len(sample_batch)
+    assert json.loads(lines[0]) == {"prior": "row"}
+    assert json.loads(lines[1])["parameter"] == "process_value"
+    assert json.loads(lines[2])["parameter"] == "setpoint"
+
+
+@pytest.mark.anyio
+async def test_csv_sink_truncates_on_open(
+    anyio_backend: object,
+    tmp_path: Path,
+    sample_batch: list[Sample],
+) -> None:
+    """CsvSink overwrites: the schema is locked per-run, cross-run append isn't supported."""
+    _ = anyio_backend
+    out = tmp_path / "out.csv"
+    out.write_text("PRE-EXISTING-CONTENT\n", encoding="utf-8")
+
+    async with CsvSink(out) as sink:
+        await sink.write_many(sample_batch)
+
+    text = out.read_text(encoding="utf-8")
+    assert "PRE-EXISTING-CONTENT" not in text
+    # Fresh header + len(sample_batch) rows.
+    assert text.count("\n") == len(sample_batch) + 1
+
+
+@pytest.mark.anyio
 async def test_csv_sink_locks_columns(
     anyio_backend: object,
     tmp_path: Path,

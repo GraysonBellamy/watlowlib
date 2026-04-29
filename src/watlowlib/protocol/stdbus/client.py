@@ -30,6 +30,7 @@ from watlowlib.errors import (
     ErrorContext,
     WatlowConnectionError,
     WatlowFrameError,
+    WatlowTimeoutError,
 )
 from watlowlib.protocol.base import ProtocolKind
 from watlowlib.protocol.stdbus.framing import (
@@ -71,12 +72,16 @@ _log = get_logger("stdbus")
 
 
 class StdBusProtocolClient:
-    """:class:`watlowlib.protocol.base.ProtocolClient` for Standard Bus."""
+    """:class:`watlowlib.protocol.base.ProtocolClient` for Standard Bus.
 
-    def __init__(self, transport: Transport, *, address: int) -> None:
-        # Validate eagerly — better here than deep in the read loop.
-        self._dst_mac = addr_to_mac(address)
-        self._address = address
+    The client is **address-agnostic**: ``execute`` takes the destination
+    bus address per-call so one client can serve every device on a
+    multi-drop RS-485 segment. The :class:`watlowlib.devices.session.Session`
+    passes its bound address; :class:`watlowlib.manager.WatlowManager`
+    shares one client across controllers on the same physical port.
+    """
+
+    def __init__(self, transport: Transport) -> None:
         self._transport = transport
         self._lock = anyio.Lock()
         self._disposed = False
@@ -96,11 +101,6 @@ class StdBusProtocolClient:
         """Wire protocol kind served by this client."""
         return ProtocolKind.STDBUS
 
-    @property
-    def address(self) -> int:
-        """The Standard Bus address (1..16) this client targets."""
-        return self._address
-
     def dispose(self) -> None:
         """Mark this client unusable for future ``execute`` calls."""
         self._disposed = True
@@ -109,23 +109,38 @@ class StdBusProtocolClient:
         self,
         request: bytes,
         *,
+        address: int,
         timeout: float | None = None,
         command_name: str = "",
     ) -> StdBusReply:
-        """Send the inner ``request`` payload and return the framed reply.
+        """Send the inner ``request`` payload to ``address`` and return the framed reply.
+
+        ``timeout`` is a **wall-clock** bound on the entire request →
+        reply round-trip. The whole I/O section runs inside a single
+        :func:`anyio.fail_after(timeout)`, so a hung device cannot
+        stall a caller for more than ``timeout`` seconds even when the
+        preamble scan and the body read each consume a substantial
+        slice. The transport's per-call timeouts are kept as defence
+        in depth.
 
         Args:
             request: Inner Watlow payload bytes (e.g. produced by
                 :func:`watlowlib.protocol.stdbus.payload.encode_read_request`).
-            timeout: Optional per-call override of
-                :attr:`watlowlib.config.DEFAULTS.io_timeout_s`.
+            address: Standard Bus address (``1..16``). Mapped to its
+                BACnet MS/TP MAC via :func:`addr_to_mac`. Validated
+                eagerly before any I/O so a bad address surfaces as a
+                pre-I/O :class:`ValueError` rather than a wire-level
+                framing failure.
+            timeout: Wall-clock bound on the round-trip. Optional
+                override of :attr:`watlowlib.config.DEFAULTS.io_timeout_s`.
             command_name: Threaded into log events for traceability.
 
         Raises:
             WatlowConnectionError: client is disposed or transport not open.
             WatlowFrameError: framing failure (bad preamble, CRC mismatch,
                 truncated body).
-            WatlowTimeoutError: read or write exceeded the bound.
+            WatlowTimeoutError: round-trip exceeded ``timeout``.
+            ValueError: ``address`` is outside ``1..16``.
         """
         if self._disposed:
             raise WatlowConnectionError(
@@ -134,21 +149,44 @@ class StdBusProtocolClient:
                     command_name=command_name or None,
                     protocol=ProtocolKind.STDBUS,
                     port=self._transport.label,
-                    address=self._address,
+                    address=address,
                 ),
             )
+        # ``addr_to_mac`` validates the address range; let it raise.
+        dst_mac = addr_to_mac(address)
         bound = timeout if timeout is not None else DEFAULTS.io_timeout_s
 
         frame = Frame(
             frame_type=FrameType.DATA_EXPECTING_REPLY,
-            dst=self._dst_mac,
+            dst=dst_mac,
             src=HOST_MAC,
             payload=request,
         )
         wire = encode_frame(frame)
 
-        await self._transport.write(wire, timeout=bound)
-        raw = await self._read_frame(bound, command_name=command_name)
+        try:
+            with anyio.fail_after(bound):
+                await self._transport.write(wire, timeout=bound)
+                raw = await self._read_frame(
+                    bound,
+                    command_name=command_name,
+                    address=address,
+                )
+        except TimeoutError as exc:
+            # The outer wall-clock cap fired before the round-trip
+            # completed. Re-raise as the typed transport timeout so
+            # callers see one shape regardless of which step expired.
+            raise WatlowTimeoutError(
+                f"Std Bus exec on addr={address} exceeded {bound}s",
+                context=ErrorContext(
+                    command_name=command_name or None,
+                    protocol=ProtocolKind.STDBUS,
+                    port=self._transport.label,
+                    address=address,
+                    request=wire,
+                ),
+            ) from exc
+
         try:
             decoded = decode_frame(raw)
         except FrameError as exc:
@@ -158,7 +196,7 @@ class StdBusProtocolClient:
                     command_name=command_name or None,
                     protocol=ProtocolKind.STDBUS,
                     port=self._transport.label,
-                    address=self._address,
+                    address=address,
                     request=wire,
                     response=raw,
                 ),
@@ -173,7 +211,7 @@ class StdBusProtocolClient:
                     command_name=command_name or None,
                     protocol=ProtocolKind.STDBUS,
                     port=self._transport.label,
-                    address=self._address,
+                    address=address,
                     request=wire,
                     response=raw,
                 ),
@@ -182,13 +220,13 @@ class StdBusProtocolClient:
         _log.debug(
             "stdbus exec ok cmd=%s addr=%d req_len=%d rsp_len=%d",
             command_name or "<anon>",
-            self._address,
+            address,
             len(wire),
             len(raw),
         )
         return StdBusReply(frame=decoded, payload=payload, raw_frame=raw)
 
-    async def _read_frame(self, timeout: float, *, command_name: str) -> bytes:
+    async def _read_frame(self, timeout: float, *, command_name: str, address: int) -> bytes:
         """Read one BACnet MS/TP frame (preamble through DCRC) from the wire.
 
         Tolerates up to ``_PREAMBLE_SCAN_LIMIT`` bytes of leading
@@ -217,7 +255,7 @@ class StdBusProtocolClient:
                         command_name=command_name or None,
                         protocol=ProtocolKind.STDBUS,
                         port=self._transport.label,
-                        address=self._address,
+                        address=address,
                         response=bytes(scanned),
                     ),
                 )
@@ -238,7 +276,7 @@ class StdBusProtocolClient:
                     command_name=command_name or None,
                     protocol=ProtocolKind.STDBUS,
                     port=self._transport.label,
-                    address=self._address,
+                    address=address,
                     response=PREAMBLE + header,
                 ),
             )

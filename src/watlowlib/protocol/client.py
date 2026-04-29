@@ -30,10 +30,12 @@ __all__ = ["make_protocol_client"]
 def make_protocol_client(
     kind: ProtocolKind,
     transport: Transport,
-    *,
-    address: int,
 ) -> ProtocolClient[Any, Any]:
-    """Build a :class:`ProtocolClient` for ``kind`` over ``transport``.
+    """Build an address-agnostic :class:`ProtocolClient` for ``kind`` over ``transport``.
+
+    The returned client takes a destination address per
+    :meth:`ProtocolClient.execute` call, so one client can serve every
+    device on a multi-drop RS-485 segment.
 
     Args:
         kind: The wire protocol. ``AUTO`` is rejected here — the
@@ -42,9 +44,6 @@ def make_protocol_client(
             the caller's responsibility — the client does not call
             ``open()`` on construction. For ``MODBUS_RTU`` this must be
             a :class:`ModbusBusTransport`.
-        address: Bus address. Std Bus accepts ``1..16`` (mapped to
-            BACnet MS/TP MAC ``0x10..0x1F``); Modbus RTU accepts
-            ``1..247``.
 
     Raises:
         WatlowConfigurationError: ``kind`` is ``AUTO`` (use the
@@ -56,7 +55,7 @@ def make_protocol_client(
         # the stdbus subpackage when they aren't needed.
         from watlowlib.protocol.stdbus.client import StdBusProtocolClient  # noqa: PLC0415
 
-        return StdBusProtocolClient(transport, address=address)
+        return StdBusProtocolClient(transport)
     if kind is ProtocolKind.MODBUS_RTU:
         from watlowlib.protocol.modbus.client import ModbusProtocolClient  # noqa: PLC0415
         from watlowlib.protocol.modbus.transport import ModbusBusTransport  # noqa: PLC0415
@@ -68,8 +67,7 @@ def make_protocol_client(
             )
         bus_transport = transport
         return ModbusProtocolClient(
-            slave_provider=lambda: bus_transport.bus.slave(address),
-            address=address,
+            slave_provider=bus_transport.bus.slave,
             port=bus_transport.label,
         )
     if kind is ProtocolKind.AUTO:
