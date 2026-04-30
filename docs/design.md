@@ -109,12 +109,12 @@ src/watlowlib/
     discovery.py        # sweep MS/TP MACs 0x10..0x1F or Modbus addresses 1..247
 
   manager.py            # WatlowManager — multi-controller, port-aware serializer
-  maintenance.py        # baud / address / protocol-mode change helpers (DANGEROUS)
+  maintenance.py        # baud / address / protocol-mode change helpers (confirmed PERSISTENT writes)
   testing.py            # FakeTransport, canned frames, fixture loaders
 
   streaming/
-    sample.py, recorder.py    # poll-only: record(controller, rate_hz=...)
-                              # cadenced calls into read_pv() or a small group
+    sample.py, recorder.py    # record(source, parameters=..., rate_hz=...)
+                              # cadenced calls into poll_many()
                               # (Watlow has no autoprint/push-stream analog)
 
   sinks/
@@ -127,12 +127,11 @@ src/watlowlib/
   cli/
     read.py        # watlow-read
     discover.py    # watlow-discover
-    capture.py     # watlow-capture
     raw.py         # watlow-raw   (escape hatch per protocol)
     decode.py      # watlow-decode (offline frame decode)
     configure.py   # watlow-configure (baud / address / protocol-mode flips)
     diagnostics/
-      snapshot.py, sweep.py, argfuzz.py, tap.py, stream.py
+      snapshot.py, sweep.py, argfuzz.py, tap.py, stream.py, detect_framing.py
 ```
 
 ## 4. The protocol seam
@@ -293,13 +292,13 @@ class SafetyTier(IntEnum):
 
 class Capability(Flag):
     NONE = 0
-    # Initial vocabulary intentionally tiny — most Watlow gating today
-    # is by ControllerFamily and by registry parameter_id, not by per-
-    # feature hardware bits. Bits added when a captured family needs
-    # them; existing bit values stay stable across releases.
     PROFILE       = auto()   # ramp / soak engine (F4T / RM)
     LIMIT         = auto()   # over/under-temperature limit module
-    SECONDARY_OUT = auto()   # second control output
+    HAS_COOLING   = auto()   # second control output present
+    HAS_MODBUS    = auto()   # comms option includes Modbus RTU
+    HAS_PROFILES  = auto()   # SKU supports profiles
+    HAS_BLUETOOTH = auto()   # comms option includes Bluetooth
+    HAS_ETHERNET  = auto()   # comms option includes Ethernet
 
 class Availability(StrEnum):
     UNKNOWN     = "unknown"     # never tried this session
@@ -330,10 +329,10 @@ transitions:
 | Modbus `SlaveDeviceFailureError` / timeout / malformed | unchanged — non-response is not a refusal |
 
 `UNSUPPORTED` is sticky for the session and short-circuits with a
-typed error pre-I/O. `family_hints` are advisory by default — *attempt
-and observe* — and only refuse pre-I/O when the session was opened
-with `strict=True`. A persistable, per-firmware probe report is left
-open as future work; the in-memory `Availability` cache is the v1
+typed error pre-I/O. `family_hints`, `capability_hints`, and firmware
+metadata are advisory in v1; the session attempts and observes rather
+than refusing from priors. A persistable, per-firmware probe report is
+left open as future work; the in-memory `Availability` cache is the v1
 mechanism.
 
 ## 6. Public API shape

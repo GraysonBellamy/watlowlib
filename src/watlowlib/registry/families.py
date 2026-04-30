@@ -37,8 +37,7 @@ class ControllerFamily(StrEnum):
     """Watlow controller family discriminator.
 
     Membership here is **advisory** — :class:`watlowlib.devices.session.Session`
-    treats family hints as priors, not gates, unless the session was
-    opened with ``strict=True``. See ``docs/design.md`` §5b.
+    treats family hints as priors, not gates. See ``docs/design.md`` §5b.
     """
 
     PM = "pm"  # EZ-ZONE PM (reference family; full part-number decoder)

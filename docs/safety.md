@@ -27,34 +27,30 @@ That's slightly stricter than the Watlow RWES classification; see
 [`Session.execute()`](../src/watlowlib/devices/session.py) applies
 gates in this fixed order:
 
-1. **Safety tier** (hard) — `PERSISTENT` operations need `confirm=True`.
-2. **Protocol** (hard) — the active-protocol variant must not be
+1. **Protocol** (hard) — the active-protocol variant must not be
    `None`, else `WatlowProtocolUnsupportedError`.
-3. **Firmware floor** (hard, when `min_firmware` is set) — refuse
-   pre-I/O with `WatlowFirmwareError`.
-4. **Capability priors** (soft by default) — emit a one-shot
-   `WatlowCapabilityWarning` and attempt the command anyway.
-5. **Known-denied** (hard once observed) — if the per-session
+2. **Known-denied** (hard once observed) — if the per-session
    availability cache records `Availability.UNSUPPORTED` for this
    command, raise pre-I/O without re-probing.
-6. **Execute**, then map the device response into an availability
+3. **Safety tier** (hard) — `PERSISTENT` operations need `confirm=True`.
+4. **Execute**, then map the device response into an availability
    transition (Std Bus "no such object/attribute/instance" or Modbus
    `IllegalDataAddress` flips the cache to `UNSUPPORTED`).
 
-## Why soft-gate on capability priors?
+## Why not hard-gate on capability priors?
 
 The reverse-engineering sample behind the family / capability tables
 is small. The cost of a wrong denial (user blocked from a parameter
 their controller actually supports) is worse than the cost of a failed
-attempt (one round-trip and a clean typed error). Soft-gating means
-the device is the source of truth for what's available; the library's
-prior is just a hint. See [Controllers](devices.md) for the
-"capabilities are priors, not contracts" framing.
+attempt (one round-trip and a clean typed error). The device remains
+the source of truth for what's available; the library's prior is just
+a hint. See [Controllers](devices.md) for the "capabilities are
+priors, not contracts" framing.
 
 ## Persistent-write helpers
 
-The following maintenance operations are gated as `PERSISTENT`-or-stronger
-because they mutate device EEPROM and may force a transport rebind:
+The following maintenance operations are gated as `PERSISTENT` because
+they mutate device EEPROM and may force a transport rebind:
 
 | Function                                                                            | Notes |
 | ----------------------------------------------------------------------------------- | ----- |
@@ -72,7 +68,7 @@ port-level helpers (no full `Controller` lifecycle needed) and via the
     `0`, `5`, `6`, etc.), writing parameter 17009 = "Modbus" *succeeds*
     on the wire but the device never starts answering Modbus frames.
     `change_protocol_mode` checks the part number's comms code before
-    issuing the write and raises `WatlowCapabilityError` if the SKU
+    issuing the write and raises `WatlowConfigurationError` if the SKU
     does not include the requested protocol. See
     [Troubleshooting](troubleshooting.md).
 

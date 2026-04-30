@@ -75,13 +75,14 @@ protocol-neutral `Controller` API. See
   Watlow's "EZ-ZONE ALL Register List" spreadsheet).
 - `data/enumerations.json` — enum value tables (Heat Algorithm,
   Sensor Type, etc.) wired to the registry's `PACKED` decoder.
-- `decode_part_number` / `classify_family` — PM/RM/CV part-number
-  decoder feeding `Capability` flags (`MULTI_LOOP`, `RAMP`, `ALARMS`,
-  …) and per-SKU comms-code introspection
+- `decode_part_number` / `classify_family` — PM/RM/ST/F4T/EZ-ZONE
+  Limit part-number classification feeding `Capability` flags
+  (`HAS_COOLING`, `HAS_MODBUS`, `HAS_PROFILES`, `HAS_BLUETOOTH`,
+  `HAS_ETHERNET`, …) and per-SKU comms-code introspection
   (`pm_comms_supports_modbus`).
 - Safety tiering — `RwesFlag` → `SafetyTier`
-  (`READ_ONLY` / `STANDARD` / `PERSISTENT` / `DANGEROUS`); persistent
-  and dangerous writes require `confirm=True`.
+  (`READ_ONLY` / `STATEFUL` / `PERSISTENT`); persistent writes require
+  `confirm=True`.
 
 #### `Controller`, `Session`, `factory.open_device`
 
@@ -103,11 +104,12 @@ protocol-neutral `Controller` API. See
 
 - `WatlowManager` — concurrent multi-device manager with port-keyed
   serialization (same-port requests serialize, different ports run in
-  parallel) and `ErrorPolicy.FAIL_FAST` / `COLLECT`.
+  parallel) and `ErrorPolicy.RAISE` / `RETURN`.
 - `record(source, parameters=..., rate_hz=..., duration=...)` —
   absolute-target poll loop driving one `Controller` or a
   `WatlowManager`. Drift-free cadence, per-tick batches, send/receive
-  timing on every `Sample`.
+  timing on every `Sample`, and `BLOCK` / `DROP_NEWEST` /
+  `DROP_OLDEST` overflow policies.
 - Sinks (in-tree): `InMemorySink`, `CsvSink`, `JsonlSink`,
   `SqliteSink`. Optional extras: `ParquetSink` (`watlowlib[parquet]`,
   pyarrow), `PostgresSink` (`watlowlib[postgres]`, asyncpg).
@@ -124,20 +126,21 @@ protocol-neutral `Controller` API. See
 
 #### Maintenance
 
-- `change_setpoint`, `change_baud`, `change_modbus_address`,
-  `change_stdbus_address`, `change_protocol_mode` — parameter-write
-  helpers gated behind `confirm=True`, with SKU-comms-code
-  pre-flight checks where applicable.
+- `change_baud`, `change_modbus_address`, `change_stdbus_address`,
+  `change_protocol_mode` — parameter-write helpers gated behind
+  `confirm=True`, with SKU-comms-code pre-flight checks where
+  applicable.
 
 #### CLIs
 
-- `watlow-read` — one decoded poll over either protocol.
+- `watlow-read` — one or more decoded parameter reads over either protocol.
 - `watlow-discover` — address sweep + identify.
-- `watlow-decode` — offline frame decode (Standard Bus or Modbus).
+- `watlow-decode` — offline Standard Bus frame decode.
 - `watlow-raw` — escape-hatch raw read / write of an arbitrary
   parameter ID.
 - `watlow-configure` — parameter-write entry points
-  (`switch-protocol`, `set-address`, `set-baud`, `set-setpoint`).
+  (`change-baud`, `change-modbus-address`,
+  `change-stdbus-address`, `change-protocol-mode`).
 - `watlow-diag` — diagnostics namespace with `snapshot`, `tap`,
   `stream`, `sweep`, `argfuzz`, `detect-framing` subcommands.
   Destructive subcommands require
@@ -155,7 +158,7 @@ protocol-neutral `Controller` API. See
 
 #### Tests
 
-- 466 tests across `asyncio`, `asyncio+uvloop`, and `trio` covering
+- 494 tests across `asyncio`, `asyncio+uvloop`, and `trio` covering
   CRCs, codecs, protocol clients, registry, families, transports,
   the Modbus integration path, controller / session / factory /
   discovery, manager, streaming, sinks, sync facade, and every CLI.

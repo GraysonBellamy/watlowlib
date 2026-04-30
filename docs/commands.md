@@ -33,9 +33,9 @@ Key [`Command`](../src/watlowlib/commands/base.py) fields:
 | `stdbus`            | [`StdBusVariant`](../src/watlowlib/commands/base.py) carrying class/member/instance + encode/decode, or `None` if no Std Bus binding. |
 | `modbus`            | [`ModbusVariant`](../src/watlowlib/commands/base.py) carrying register address + register count + encode/decode, or `None` if no Modbus binding. |
 | `family_hints`      | Advisory `frozenset[ControllerFamily]` prior; empty = no prior. |
-| `capability_hints`  | Required `Capability` bits; `Capability.NONE` = always attempt. |
+| `capability_hints`  | Advisory metadata reserved for stricter future gates; `Capability.NONE` = no hint. |
 | `safety`            | [`SafetyTier`](api/devices.md): `READ_ONLY`, `STATEFUL`, `PERSISTENT`. |
-| `min_firmware`      | Optional firmware-version floor. |
+| `min_firmware`      | Optional firmware-version floor metadata; not enforced by the v1 session. |
 
 Every command is dispatched via `session.execute(spec, request)`. The
 request is a typed per-command dataclass; the response is the typed
@@ -48,17 +48,13 @@ public surface.
 See [Safety](safety.md) for the full table and [Design](design.md)
 §5b for the rationale.
 
-1. **Safety tier** (hard) — `PERSISTENT` requires `confirm=True`.
-2. **Protocol** (hard) — active-protocol variant must not be `None`,
+1. **Protocol** (hard) — active-protocol variant must not be `None`,
    else `WatlowProtocolUnsupportedError`.
-3. **Firmware floor** (hard, when `min_firmware` is set) — refuse pre-I/O
-   with `WatlowFirmwareError`.
-4. **Capability priors** (soft by default) — emit a one-shot
-   `WatlowCapabilityWarning` and attempt the command anyway.
-5. **Known-denied** (hard once observed) — per-session availability
+2. **Known-denied** (hard once observed) — per-session availability
    cache short-circuits commands the device has already returned a
    "no such object/attribute/instance" code for.
-6. **Execute**, then update the availability cache from the device's
+3. **Safety tier** (hard) — `PERSISTENT` requires `confirm=True`.
+4. **Execute**, then update the availability cache from the device's
    response (see [Design](design.md) §5b).
 
 ## Commands by module
@@ -92,9 +88,10 @@ compose `READ_PARAMETER` / `WRITE_PARAMETER`:
 | `Controller.read_parameter(name)` | any registered parameter | per-spec    |
 | `Controller.write_parameter(name, value, confirm=True)` | any registered parameter | per-spec |
 
-`Controller.poll(parameters)` issues one read per requested parameter
-in sequence, returning a list of [`Reading`](api/devices.md). Used by
-the recorder.
+`Controller.poll()` is the no-argument process-value snapshot helper.
+`Controller.poll_many(parameters, instances=...)` issues one read per
+requested parameter/instance and returns `Sample` rows for the
+recorder.
 
 ### Loop — [commands/loop.py](../src/watlowlib/commands/loop.py)
 

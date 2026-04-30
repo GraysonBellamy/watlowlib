@@ -4,7 +4,7 @@ Supports both wire protocols Watlow controllers expose:
 
 - **Standard Bus**: BACnet MS/TP outer framing with a small Watlow
   attribute service inside.
-- **Modbus RTU** (planned): via the in-house ``anymodbus`` package.
+- **Modbus RTU**: via the in-house ``anymodbus`` package.
 
 The public API is semantic and protocol-neutral — a caller asks for
 ``read_pv()``, ``set_setpoint()``, ``read_parameter()``; the session
@@ -12,9 +12,8 @@ dispatches the Standard Bus or Modbus variant selected at open time.
 Both protocols decode into the same frozen ``Reading`` /
 ``ParameterEntry`` / ``DeviceInfo`` models.
 
-Core API is ``async`` (built on ``anyio``); a sync facade will be
-available at :mod:`watlowlib.sync` for scripts, notebooks, and REPL
-use.
+Core API is ``async`` (built on ``anyio``); :mod:`watlowlib.sync`
+provides a blocking facade for scripts, notebooks, and REPL use.
 
 See ``docs/design.md`` for the architectural design.
 """

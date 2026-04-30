@@ -60,7 +60,9 @@ async def main() -> None:
 anyio.run(main)
 ```
 
-A `Controller` satisfies `PollSource` directly via `Controller.poll(...)`.
+A `Controller` satisfies `PollSource` directly via
+`Controller.poll_many(...)`. `Controller.poll()` is the no-argument PV
+snapshot helper; use `poll_many()` for acquisition batches.
 
 ## Multi-controller manager
 
@@ -103,10 +105,13 @@ falls behind:
   drops to the consumer's drain rate; nothing is silently dropped.
 - `DROP_NEWEST` — drop the batch about to be enqueued; counted as
   `samples_late` in the run summary.
+- `DROP_OLDEST` — evict the oldest queued batch and enqueue the newest;
+  useful for live dashboards where freshness matters more than keeping
+  every historical tick.
 
-`AcquisitionSummary` (returned on CM exit) reports
-`samples_emitted` / `samples_late` / `max_drift_ms` so you can verify
-the schedule kept up.
+The recorder logs its run summary on context-manager exit. `pipe()`
+returns an `AcquisitionSummary` from the sink side with
+`samples_emitted` set to the number of samples written.
 
 ## Cross-vendor SQLite
 

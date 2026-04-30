@@ -192,7 +192,7 @@ class WatlowConfigurationError(WatlowError):
 
 
 class WatlowConfirmationRequiredError(WatlowConfigurationError):
-    """A PERSISTENT / DANGEROUS command was attempted without ``confirm=True``."""
+    """A PERSISTENT command was attempted without ``confirm=True``."""
 
 
 class WatlowValidationError(WatlowConfigurationError):

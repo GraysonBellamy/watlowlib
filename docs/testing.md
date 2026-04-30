@@ -121,7 +121,7 @@ Rules:
 - Malformed input raises `WatlowValidationError` with the file path
   and line number.
 
-The captures shipped under [`captures/`](../captures/) use this format.
+The captures shipped under [`tests/fixtures/`](../tests/fixtures/) use this format.
 Convert a real wire-trace capture by hand or via `watlow-decode` (see
 [Troubleshooting](troubleshooting.md)).
 
@@ -134,7 +134,7 @@ scenario," use the one-liner:
 from watlowlib.testing import controller_from_fixture
 
 async def test_pv_round_trip() -> None:
-    async with controller_from_fixture("captures/2026-04-26/02-pv-sp.json") as ctl:
+    async with controller_from_fixture("tests/fixtures/pm3_stdbus_pv_setpoint.jsonl") as ctl:
         reading = await ctl.read_pv()
     assert reading.value > 20.0
 ```

@@ -122,12 +122,12 @@ class Command[Req, Resp]:
             Modbus binding.
         family_hints: Advisory family priors. ``frozenset()`` means
             "no prior — attempt anywhere".
-        capability_hints: Capability bits required to attempt the
-            command. :attr:`Capability.NONE` means "always attempt".
+        capability_hints: Advisory capability metadata. The v1
+            session does not hard-gate on this field.
         safety: Determines whether ``confirm=True`` is required at
             the facade.
-        min_firmware: If set, the session refuses the command on
-            devices reporting a lower firmware version.
+        min_firmware: Optional firmware-floor metadata. The v1 session
+            does not enforce it.
     """
 
     name: str

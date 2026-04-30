@@ -2,13 +2,12 @@
 
 Watlow exposes firmware identity as parameter 1002 (``S32``); the user-
 facing version is derived from the build / branch / prototype triple
-(parameters 1004 / 1006 / 1002 in PM Map 1) but a simple ``major.minor``
-form is enough for command gating.
+(parameters 1004 / 1006 / 1002 in PM Map 1) but a simple
+``major.minor.patch`` form is enough for command metadata.
 
 :class:`FirmwareVersion` is the type stored on
-:attr:`watlowlib.commands.base.Command.min_firmware`. The session
-compares the device-reported version against the command's minimum
-before dispatch.
+:attr:`watlowlib.commands.base.Command.min_firmware`. The v1 session
+does not enforce firmware floors yet.
 """
 
 from __future__ import annotations

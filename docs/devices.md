@@ -78,12 +78,12 @@ being guessed. See [`capabilities_for_part_number`](../src/watlowlib/registry/fa
 
 The reverse-engineering sample behind these tables is small. The
 library treats the family table and capability bits as **priors from
-observation**, not protocol guarantees. The session attempts commands
-whose priors don't match and updates the per-session availability
-cache on the device's response. Pre-I/O refusal happens only under
-`strict=True` (when wired through the session) or after an observed
+observation**, not protocol guarantees. The generic session attempts
+commands and updates the per-session availability cache on the
+device's response. Pre-I/O refusal happens after an observed
 `WatlowNoSuchObjectError` / `WatlowModbusIllegalDataAddressError` on
-the current session.
+the current session, or in targeted helper paths that would otherwise
+issue a known-bad write for a decoded SKU.
 
 `DeviceInfo.health` carries the outcome of `identify()`:
 

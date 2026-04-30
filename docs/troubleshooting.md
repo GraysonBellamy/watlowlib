@@ -53,8 +53,8 @@ flip, not separate connectors.
 ## `watlow-discover`
 
 ```bash
-watlow-discover /dev/ttyUSB0 --protocol stdbus --baud 38400
-watlow-discover /dev/ttyUSB0 --protocol modbus --baud 9600 --range 1-16
+watlow-discover --port /dev/ttyUSB0 --protocol stdbus --baud 38400
+watlow-discover --port /dev/ttyUSB0 --protocol modbus_rtu --baud 9600 --addresses 1-16
 ```
 
 Probes a port across address ranges and prints the
@@ -77,7 +77,7 @@ If `watlow-discover` finds nothing:
 ## `watlow-read`
 
 ```bash
-watlow-read /dev/ttyUSB0 --address 1 --param process_value
+watlow-read --port /dev/ttyUSB0 --address 1 -p process_value
 ```
 
 Open, identify, read one parameter, exit. The fastest sanity check
@@ -93,9 +93,9 @@ Modbus stack. Position-8 codes that *do* carry Modbus are `1`, `2`,
 
 | Symptom | Likely cause | Fix |
 | ------- | ------------ | --- |
-| `change_protocol_mode(MODBUS_RTU)` "succeeds" but the controller never answers Modbus frames afterwards | Std-Bus-only SKU (comms position-8 = `A`); the parameter write lands but the device has no Modbus stack to start | Flip back to Std Bus and use Modbus only on a comms-equipped SKU. The library now gates this on `Capability.HAS_MODBUS` and raises `WatlowCapabilityError` instead. |
+| `change_protocol_mode(MODBUS_RTU)` "succeeds" but the controller never answers Modbus frames afterwards | Std-Bus-only SKU (comms position-8 = `A`); the parameter write lands but the device has no Modbus stack to start | Flip back to Std Bus and use Modbus only on a comms-equipped SKU. The library now gates this on `Capability.HAS_MODBUS` and raises `WatlowConfigurationError` instead. |
 | `identify()` reports `protocol_mismatch=True` | EEPROM parameter 17009 disagrees with the active wire protocol | Either flip the device to match (`change_protocol_mode`) or open with the protocol the device is actually serving. |
-| `WatlowTimeoutError` on every read after a `change_protocol_mode` write | Verifier raced the framing change — verify pass uses the *target* protocol's defaults but inherits the open serial settings | Re-open the controller with the target protocol's serial settings (38400 for Std Bus, 9600 for Modbus). |
+| `WatlowTimeoutError` on every read after a `change_protocol_mode` write | The controller did not answer at the target framing during verification | Re-open the controller with the target protocol's serial settings (38400 for Std Bus, 9600 for Modbus) and power-cycle if the firmware applies the change only after restart. |
 
 ## Common typed errors
 
@@ -109,8 +109,8 @@ Modbus stack. Position-8 codes that *do* carry Modbus are `1`, `2`,
 | `WatlowModbusIllegalDataAddressError`          | Modbus device returned exception code 02                                 | Register not implemented for this SKU; same gap as the Std Bus "no such" codes. |
 | `WatlowModbusIllegalDataValueError`            | Modbus device returned exception code 03                                 | Bad argument — clamp to the documented range. |
 | `WatlowConfirmationRequiredError`              | `PERSISTENT` op without `confirm=True`                                   | Add `confirm=True` if the operation is intentional — see [Safety](safety.md). |
-| `WatlowCapabilityError`                        | Pre-flight SKU / capability gate refused the call                        | Check `info.capabilities` against the operation's requirement; the device may not have shipped the option. |
-| `WatlowFirmwareError`                          | Controller's firmware is below the command's `min_firmware`              | Update firmware or use an alternate path. |
+| `WatlowCapabilityError`                        | Reserved capability-gate error class; not currently emitted by the session | Treat as a future-compatible subclass of `WatlowError` if you catch it. |
+| `WatlowFirmwareError`                          | Reserved firmware-gate error class; `min_firmware` is metadata in v1     | Treat as a future-compatible subclass of `WatlowCapabilityError` if you catch it. |
 | `WatlowValidationError`                        | Pre-flight host-side validation refused the call                         | Bad parameter name, instance out of range, or value outside the parsed range. |
 | `WatlowSinkDependencyError`                    | Sink module imported without its optional backend                        | `pip install 'watlowlib[parquet]'` / `[postgres]`. |
 
@@ -120,14 +120,13 @@ When a wire-trace dump shows up in a bug report or RE session, decode
 it without hardware:
 
 ```bash
-watlow-decode --stdbus "55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99"
-watlow-decode --modbus-rtu --address 1 --hex "01 03 01 68 00 02 44 1A"
+watlow-decode "55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99"
 ```
 
 `watlow-decode` understands the Std Bus BACnet MS/TP outer frame, the
-Watlow attribute payload (read/write request/response shapes), and
-the Modbus function-code + register-address layout. Output is
-JSON-friendly; pipe to `jq` for filtering.
+Watlow attribute payload (read/write request/response shapes), and does
+not open a serial port. Output is JSON-friendly; pipe to `jq` for
+filtering.
 
 ## Diagnostics CLI (`watlow-diag`)
 
@@ -142,7 +141,7 @@ to the device:
 | `watlow-diag sweep`     | Walk a parameter-id range and record responses. |
 | `watlow-diag argfuzz`   | Probe a parameter's argument space. Destructive ops gated. |
 | `watlow-diag tap`       | Passively watch the line and decode in real time. |
-| `watlow-diag detect`    | Identify framing on an unknown-protocol line. |
+| `watlow-diag detect-framing` | Identify framing on an unknown-protocol line. |
 
 Destructive subcommands require an explicit
 `--i-understand-this-is-destructive` flag. Never invoked from normal
@@ -154,7 +153,7 @@ If the controller is in the wrong mode and the front panel isn't
 practical:
 
 ```bash
-watlow-configure switch-protocol /dev/ttyUSB0 --address 1 --to modbus_rtu --confirm
+watlow-configure change-protocol-mode /dev/ttyUSB0 --address 1 --target modbus_rtu --confirm
 ```
 
 The CLI thinly wraps

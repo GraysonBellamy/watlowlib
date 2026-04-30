@@ -1,10 +1,10 @@
 r"""Internal polling helper — turns ``read_parameter`` calls into :class:`Sample`\ s.
 
-Shared between :meth:`Controller.poll` and
-:meth:`WatlowManager.poll` so the timing / sample-construction logic
-lives in exactly one place. Failures are caught and logged, never
-raised — the caller (:func:`record`) treats absence as "drop this row
-from the batch".
+Shared between :meth:`Controller.poll_many` and
+:meth:`WatlowManager.poll_many` so the timing / sample-construction
+logic lives in exactly one place. Failures are caught and logged,
+never raised — the caller (:func:`record`) treats absence as "drop
+this row from the batch".
 """
 
 from __future__ import annotations

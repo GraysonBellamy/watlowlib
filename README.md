@@ -16,7 +16,7 @@ acquisition helpers, and pluggable sinks.
 
 > **Status: alpha.** Both wire protocols, the `Controller` facade,
 > `WatlowManager`, streaming, all sinks, the sync facade, and every CLI
-> are implemented and covered by 466 tests across `asyncio`,
+> are implemented and covered by 494 tests across `asyncio`,
 > `asyncio+uvloop`, and `trio`. The core has been exercised against a
 > live EZ-ZONE PM3 (Standard Bus); the Modbus RTU side has full
 > codec / client / integration coverage but limited bench mileage.
@@ -38,13 +38,14 @@ acquisition helpers, and pluggable sinks.
   `read_parameter("setpoint")` lowers to either protocol from one
   shared registry.
 - **Typed end to end.** `TemperatureUnit.F`,
-  `Capability.MULTI_LOOP`, frozen-dataclass responses, `py.typed`,
+  `Capability.HAS_COOLING`, frozen-dataclass responses, `py.typed`,
   `mypy --strict` clean.
 - **Typed errors.** `WatlowError` root with structured `ErrorContext`;
   every Standard Bus error code (`0x81` / `0x83` / `0x84`) and every
   Modbus exception (`0x01`–`0x0B`) maps to a distinct exception.
-- **Safety gates.** `PERSISTENT` (RWE) and `DANGEROUS` (RWES /
-  calibration / baud-change) operations require `confirm=True`.
+- **Safety gates.** Every `PERSISTENT` write — including setpoint,
+  PID, baud, address, and protocol-mode changes — requires
+  `confirm=True`.
 - **Multi-device.** `WatlowManager` runs many controllers concurrently
   — same-port requests serialize, different ports run in parallel.
 - **Acquisition built in.** `record(...)` drives one or many devices on
@@ -128,7 +129,12 @@ async def main() -> None:
         await mgr.add("oven", "/dev/ttyUSB0", address=1)
         await mgr.add("furnace", "/dev/ttyUSB0", address=2)
         async with (
-            record(mgr, rate_hz=2, duration=3600) as stream,
+            record(
+                mgr,
+                parameters=["process_value", "setpoint"],
+                rate_hz=2,
+                duration=3600,
+            ) as stream,
             CsvSink("run.csv") as sink,
         ):
             await pipe(stream, sink)
@@ -142,11 +148,11 @@ samples per tick, and reports send/receive timing on every `Sample`.
 ## Command-line tools
 
 ```bash
-watlow-discover /dev/ttyUSB0                       # probe + identify
-watlow-read /dev/ttyUSB0 --protocol auto           # one decoded poll
-watlow-decode --stdbus 55 FF 06 00 10 ...          # offline frame decode
-watlow-raw /dev/ttyUSB0 --param 4001 --confirm     # raw escape hatch
-watlow-configure switch-protocol /dev/ttyUSB0 --confirm
+watlow-discover --port /dev/ttyUSB0 --protocol both # probe + identify
+watlow-read --port /dev/ttyUSB0 --protocol auto -p process_value
+watlow-decode "55 FF 06 00 10 ..."                  # offline Std Bus decode
+watlow-raw --port /dev/ttyUSB0 stdbus --service read --class 4 --member 1
+watlow-configure change-protocol-mode /dev/ttyUSB0 --target modbus_rtu --confirm
 watlow-diag snapshot /dev/ttyUSB0 --out diag.json  # reverse-engineering aids
 ```
 

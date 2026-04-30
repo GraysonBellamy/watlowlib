@@ -403,9 +403,9 @@ async def change_protocol_mode(
     )
     try:
         async with ctl:
-            # Pre-write SKU gate. Capability.HAS_MODBUS / .HAS_STDBUS
-            # is decoded from the part number's comms position-8
-            # character; if the SKU never shipped Modbus and the user
+            # Pre-write SKU gate. Capability.HAS_MODBUS is decoded
+            # from the part number's comms position-8 character; if
+            # the SKU never shipped Modbus and the user
             # is asking for Modbus, refuse here rather than burning a
             # confirmed write that the runtime stack will silently
             # ignore.
@@ -497,7 +497,8 @@ def _check_sku_supports_protocol(
     # Std Bus is included on every PM SKU per the ordering guide
     # (position 8 = 'A' → "None; Standard Bus still included") so
     # there's no symmetric refusal here. If a future PM variant ships
-    # Modbus-only, extend this gate with a HAS_STDBUS bit.
+    # Modbus-only, extend this gate with an explicit Std Bus
+    # capability bit.
 
 
 async def _verify(

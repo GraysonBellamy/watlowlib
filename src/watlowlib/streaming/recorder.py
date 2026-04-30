@@ -210,12 +210,12 @@ async def record(
             is full. See :class:`OverflowPolicy`.
         buffer_size: Receive-stream capacity, in per-tick batches.
         auto_reconnect: When ``True``, treat
-            :class:`WatlowConnectionError` raised by ``source.poll``
+            :class:`WatlowConnectionError` raised by ``source.poll_many``
             as a transient transport drop rather than a fatal error.
             The producer logs ``recorder.disconnected``, waits per the
             backoff schedule, and either rebuilds the source via
             ``reconnect_factory`` (if supplied) or simply retries the
-            same ``source.poll`` on the next tick. ``samples_late``
+            same ``source.poll_many`` on the next tick. ``samples_late``
             ticks up for each tick missed during the gap.
         reconnect_factory: When supplied alongside ``auto_reconnect``,
             invoked to rebuild the :class:`PollSource` after a
@@ -223,9 +223,9 @@ async def record(
             re-opened explicitly (e.g. a fresh
             :func:`watlowlib.open_device` call). The returned source
             replaces ``source`` for subsequent ticks. Without a
-            factory, the recorder relies on ``source.poll`` itself to
+            factory, the recorder relies on ``source.poll_many`` itself to
             recover (which works for callers that wrap their own
-            transport-reopen logic inside ``poll``).
+            transport-reopen logic inside ``poll_many``).
 
     Yields:
         An async iterator of per-tick :class:`Sample` batches.
@@ -348,7 +348,7 @@ async def _run_producer(
 
     When ``auto_reconnect`` is ``True``, a
     :class:`watlowlib.errors.WatlowConnectionError` from
-    ``source.poll`` is treated as a transient gap: the tick is counted
+    ``source.poll_many`` is treated as a transient gap: the tick is counted
     as late, and the producer waits per the
     :data:`_RECONNECT_BACKOFF_S` schedule before retrying — either
     against the same source (no factory) or against a freshly-built

@@ -42,8 +42,8 @@ anyio.run(main)
 
 Required: `parameters` (list of canonical names or aliases) and
 `rate_hz`. Optional: `duration` (seconds; `None` = unbounded),
-`overflow_policy`. See [Design](design.md) §6 for the full scheduling
-model.
+`overflow`, `buffer_size`, and `auto_reconnect`. See [Design](design.md)
+§6 for the full scheduling model.
 
 Watlow polls a *small group* of parameters per device per tick, so a
 recorder tick produces N×M samples — one per (device, parameter) pair
@@ -76,17 +76,17 @@ parameter read with timing provenance.
 
 ## `AcquisitionSummary`
 
-[`AcquisitionSummary`](api/streaming.md) is yielded by `record()` on
-exit and returned by `pipe()`.
+[`AcquisitionSummary`](api/streaming.md) is the shared summary shape
+used by the recorder log event and returned by `pipe()`.
 
 | Field                  | Notes |
 | ---------------------- | ----- |
 | `started_at`           | Wall-clock at the first scheduled tick. |
 | `finished_at`          | Wall-clock at producer shutdown. |
-| `samples_emitted`      | Total samples pushed onto the stream (= ticks × parameters × devices on a clean run). |
-| `samples_late`         | Samples that missed their target slot or were dropped under the overflow policy. |
+| `samples_emitted`      | For `pipe()`: samples handed to the sink. For recorder logs: per-tick batches pushed onto the stream. |
+| `samples_late`         | Recorder-side ticks that missed their target slot or were dropped under the overflow policy; `pipe()` returns `0` for this field. |
 | `max_drift_ms`         | Largest observed positive drift of an emitted batch. |
-| `target_total_samples` | Scheduled sample count for finite-duration runs, or `None` for open-ended runs. |
+| `disconnects`          | Watlow connection drops absorbed under `auto_reconnect=True`; `pipe()` returns `0`. |
 
 ## Sinks
 
@@ -174,9 +174,11 @@ up, the recorder drops batches per the configured `OverflowPolicy`:
   once the consumer catches up.
 - `OverflowPolicy.DROP_NEWEST` — drop the batch about to be enqueued.
   Counted on `samples_late`.
+- `OverflowPolicy.DROP_OLDEST` — evict the oldest queued batch and
+  enqueue the newest. Counted on `samples_late`.
 
-Drops are counted on `AcquisitionSummary.samples_late` and emitted as
-structured log events through `_logging.get_logger("streaming")`.
+Drops are counted on the recorder summary's `samples_late` and emitted
+as structured log events through `_logging.get_logger("streaming")`.
 
 ## SQLite specifics
 
