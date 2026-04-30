@@ -130,8 +130,6 @@ class Controller:
         return ControllerLoop(self, n)
 
     async def __aenter__(self) -> Self:
-        if not self._transport.is_open:
-            await self._transport.open()
         return self
 
     async def __aexit__(
@@ -140,9 +138,10 @@ class Controller:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        await self.aclose()
+        del exc_type, exc, tb
+        await self.close()
 
-    async def aclose(self) -> None:
+    async def close(self) -> None:
         """Close the underlying transport and dispose the protocol client."""
         # The session holds a reference to the protocol client; dispose
         # it so any pending caller learns the controller is gone before
@@ -231,7 +230,19 @@ class Controller:
 
     # --- Streaming ------------------------------------------------------
 
-    async def poll(
+    async def poll(self, *, instance: int = 1, timeout: float | None = None) -> Reading:
+        """Read the active process value — the canonical no-arg snapshot.
+
+        Equivalent to :meth:`read_pv`. The no-arg form aligns with the
+        ecosystem ``poll()`` convention shared by ``alicatlib.Device``,
+        ``sartoriuslib.Balance``, and ``nidaqlib.DaqSession``: a
+        single, default-shaped reading per call.
+
+        For multi-parameter polling use :meth:`poll_many`.
+        """
+        return await self.read_pv(instance=instance, timeout=timeout)
+
+    async def poll_many(
         self,
         parameters: Sequence[str | int],
         *,

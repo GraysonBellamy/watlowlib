@@ -135,9 +135,9 @@ async def open_controller(
 ) -> Controller:
     """Build a :class:`Controller` over an existing :class:`Transport`.
 
-    Tests use this to drive the facade through a
-    :class:`watlowlib.transport.fake.FakeTransport`. Production code
-    uses :func:`open_device`.
+    Opens the transport if not already open. Tests use this to drive
+    the facade through a :class:`watlowlib.transport.fake.FakeTransport`.
+    Production code uses :func:`open_device`.
     """
     if protocol is ProtocolKind.AUTO:
         raise WatlowConfigurationError(
@@ -145,6 +145,8 @@ async def open_controller(
             "open_device (which runs the detector and returns a built Controller).",
             context=ErrorContext(port=transport.label),
         )
+    if not transport.is_open:
+        await transport.open()
     client = make_protocol_client(protocol, transport)
     session = Session(
         client,

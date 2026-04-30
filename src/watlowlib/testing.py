@@ -1,4 +1,4 @@
-"""Public testing surface for downstream packages.
+r"""Public testing surface for downstream packages.
 
 The test seam is a contract: anyone consuming :mod:`watlowlib` can
 ``import watlowlib.testing`` and write facade-level tests against
@@ -17,10 +17,28 @@ What's here:
 - :func:`load_fixture` — JSONL file → :class:`Fixture`.
 - :func:`controller_from_fixture` — JSONL file → opened
   :class:`Controller` ready for facade-level assertions.
+- :func:`parse_arrow_fixture` — plaintext arrow file → ``dict[bytes,
+  bytes]`` script map for :class:`FakeTransport`. The arrow format
+  matches :mod:`alicatlib.testing` and :mod:`sartoriuslib.testing`
+  for cross-package consistency.
+- :func:`FakeTransportFromArrowFixture` — plaintext arrow file →
+  built :class:`FakeTransport`.
 
-Fixture file format is one JSON object per line. The first line may
-be a header recording the protocol and serial framing; everything
-else is a round.
+Two fixture formats are supported:
+
+**Plaintext arrow** (Std Bus only — recommended for code review)::
+
+    # scenario: read_pv
+    > 55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99
+    < 55 FF 06 00 10 00 0B 88 02 03 01 04 01 01 08 45 1E 3C D4 A7 28
+
+Bytes are space-separated hex. ``#`` introduces comments; blank lines
+are ignored. Each ``>`` line names a request; one or more following
+``<`` lines name the reply (concatenated into one scripted reply).
+
+**JSONL** (rich — required for Modbus, optional for Std Bus). One
+JSON object per line. The first line may be a header recording the
+protocol and serial framing; everything else is a round.
 
 Std Bus round::
 
@@ -89,11 +107,13 @@ if TYPE_CHECKING:
 __all__ = [
     "FakeSlave",
     "FakeTransport",
+    "FakeTransportFromArrowFixture",
     "Fixture",
     "ModbusRound",
     "StdBusRound",
     "controller_from_fixture",
     "load_fixture",
+    "parse_arrow_fixture",
 ]
 
 
@@ -331,3 +351,140 @@ def _parse_modbus_row(row: dict[str, Any], source: Path, line_no: int) -> Modbus
         response_words=response_words,
         values=values,
     )
+
+
+# ---------------------------------------------------------------------------
+# Plaintext-arrow fixture loader (Std Bus). Mirrors alicatlib /
+# sartoriuslib for cross-package consistency.
+# ---------------------------------------------------------------------------
+
+
+def _iter_semantic_lines(text: Sequence[str]) -> Sequence[tuple[int, str]]:
+    """Yield ``(line_number, stripped_line)`` for non-comment, non-blank lines."""
+    out: list[tuple[int, str]] = []
+    for line_number, raw in enumerate(text, start=1):
+        stripped = raw.rstrip("\r\n")
+        lean = stripped.lstrip()
+        if not lean or lean.startswith("#"):
+            continue
+        out.append((line_number, stripped))
+    return out
+
+
+def _hex_payload(line: str, marker: str, *, source: Path, line_no: int) -> bytes:
+    """Decode ``"55 FF 05 ..."`` after ``marker`` into raw bytes."""
+    without = line.lstrip()[len(marker) :]
+    cleaned = without.replace(" ", "").replace("\t", "")
+    if not cleaned:
+        raise ValueError(
+            f"{source}:{line_no}: empty hex payload after {marker!r}",
+        )
+    try:
+        return bytes.fromhex(cleaned)
+    except ValueError as exc:
+        raise ValueError(
+            f"{source}:{line_no}: invalid hex bytes after {marker!r}: {exc}",
+        ) from exc
+
+
+def parse_arrow_fixture(path: str | Path) -> dict[bytes, bytes]:
+    r"""Parse a plaintext-arrow fixture into a :class:`FakeTransport` script.
+
+    The fixture format is intentionally human-skimmable so captured
+    Std Bus traffic round-trips through code review (cross-package
+    convention shared with :mod:`alicatlib.testing` and
+    :mod:`sartoriuslib.testing`)::
+
+        # scenario: read_pv (PM3, parameter 4001)
+        > 55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99
+        < 55 FF 06 00 10 00 0B 88 02 03 01 04 01 01 08 45 1E 3C D4 A7 28
+
+    Parsing rules:
+
+    - Lines starting with ``#`` are comments; ignored.
+    - Blank lines are ignored.
+    - ``>`` introduces a request — bytes after the marker are decoded
+      as space-separated hex. Whitespace within a payload is ignored
+      so callers can group bytes for readability.
+    - ``<`` introduces one reply — same hex encoding. Multiple ``<``
+      lines after a single ``>`` concatenate into one scripted reply
+      (useful when a logical reply was captured across multiple
+      reads).
+    - Duplicate ``>`` entries are a fixture error rather than a
+      silent overwrite.
+
+    Returns:
+        Mapping ``request_bytes → reply_bytes`` ready to feed
+        :class:`FakeTransport`.
+
+    Raises:
+        ValueError: On malformed lines, a ``<`` before any ``>``, or
+            a duplicate ``>`` entry. Every error message names the
+            offending line number.
+        FileNotFoundError: Via the underlying :meth:`Path.read_text`.
+    """
+    fixture_path = Path(path)
+    script: dict[bytes, bytes] = {}
+    current_send: bytes | None = None
+    current_reply_chunks: list[bytes] = []
+
+    def _flush() -> None:
+        nonlocal current_send, current_reply_chunks
+        if current_send is None:
+            return
+        if current_send in script:
+            raise ValueError(
+                f"{fixture_path}: duplicate send entry {current_send!r}",
+            )
+        script[current_send] = b"".join(current_reply_chunks)
+        current_send = None
+        current_reply_chunks = []
+
+    text = fixture_path.read_text(encoding="utf-8")
+    for line_number, line in _iter_semantic_lines(text.splitlines()):
+        lean = line.lstrip()
+        if lean.startswith(">"):
+            _flush()
+            current_send = _hex_payload(
+                line,
+                ">",
+                source=fixture_path,
+                line_no=line_number,
+            )
+        elif lean.startswith("<"):
+            if current_send is None:
+                raise ValueError(
+                    f"{fixture_path}:{line_number}: '<' line without preceding '>'",
+                )
+            current_reply_chunks.append(
+                _hex_payload(line, "<", source=fixture_path, line_no=line_number),
+            )
+        else:
+            raise ValueError(
+                f"{fixture_path}:{line_number}: unrecognized line {line!r}; "
+                f"lines must start with '>', '<', or '#'",
+            )
+    _flush()
+    return script
+
+
+def FakeTransportFromArrowFixture(  # noqa: N802 — public factory, title-case matches the class it returns
+    path: str | Path,
+    *,
+    label: str | None = None,
+) -> FakeTransport:
+    """Load a plaintext-arrow fixture into a built :class:`FakeTransport`.
+
+    Convenience wrapper around :func:`parse_arrow_fixture` plus
+    :class:`FakeTransport` construction. The returned transport is
+    not opened — the caller awaits ``.open()`` as usual.
+
+    Args:
+        path: Path to the ``.txt`` fixture.
+        label: Optional override for :attr:`FakeTransport.label`;
+            defaults to ``"fixture://<basename>"`` so error contexts
+            point at the actual fixture during failures.
+    """
+    script = parse_arrow_fixture(path)
+    resolved_label = label if label is not None else f"fixture://{Path(path).name}"
+    return FakeTransport(script, label=resolved_label)

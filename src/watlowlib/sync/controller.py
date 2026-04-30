@@ -211,9 +211,9 @@ class SyncController:
         names: Sequence[str] | None = None,
         instances: Sequence[int] = (1,),
     ) -> list[Sample]:
-        """Blocking :meth:`Controller.poll`."""
+        """Blocking :meth:`Controller.poll_many`."""
         return self._portal.call(
-            self._ctl.poll,
+            self._ctl.poll_many,
             parameters,
             names=names,
             instances=instances,
@@ -222,10 +222,10 @@ class SyncController:
     # ------------------------------------------------------------------ lifecycle
 
     def close(self) -> None:
-        """Blocking :meth:`Controller.aclose`. Idempotent."""
+        """Blocking :meth:`Controller.close`. Idempotent."""
         if not self._portal.running:
             return
-        self._portal.call(self._ctl.aclose)
+        self._portal.call(self._ctl.close)
 
 
 def wrap_controller(controller: Controller, portal: SyncPortal) -> SyncController:
@@ -296,4 +296,4 @@ class Watlow:
                 yield wrap_controller(controller, active_portal)
             finally:
                 # Close the underlying transport through the portal.
-                active_portal.call(controller.aclose)
+                active_portal.call(controller.close)

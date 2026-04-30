@@ -59,10 +59,11 @@ from watlowlib.transport.base import SerialSettings
 from watlowlib.transport.serial import SerialTransport
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
     from types import TracebackType
     from typing import Self
 
+    from watlowlib.devices.models import Reading
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import Transport
 
@@ -94,14 +95,15 @@ class ErrorPolicy(Enum):
 class DeviceResult[T]:
     """Per-device result container — value **or** error, never both.
 
-    :attr:`protocol` is populated from the controller's session so error
-    rows from the streaming layer can still record which protocol
-    produced the failure.
+    The protocol that produced the failure is available via
+    ``result.error.context.protocol`` when the error carries context;
+    keeping it off the result keeps the success-path representation
+    clean and aligns with the ecosystem ``DeviceResult`` shape used by
+    :mod:`alicatlib` and :mod:`sartoriuslib`.
     """
 
     value: T | None
     error: WatlowError | None
-    protocol: ProtocolKind | None = None
 
     @property
     def ok(self) -> bool:
@@ -199,7 +201,7 @@ class WatlowManager:
         async with WatlowManager() as mgr:
             await mgr.add("ctl1", "/dev/ttyUSB0", address=1)
             await mgr.add("ctl2", "/dev/ttyUSB1", address=1)
-            samples = await mgr.poll(["process_value", "setpoint"])
+            samples = await mgr.poll_many(["process_value", "setpoint"])
     """
 
     def __init__(self, *, error_policy: ErrorPolicy = ErrorPolicy.RAISE) -> None:
@@ -402,6 +404,46 @@ class WatlowManager:
 
     async def poll(
         self,
+        names: Sequence[str] | None = None,
+        *,
+        instance: int = 1,
+    ) -> Mapping[str, DeviceResult[Reading]]:
+        """Read the active process value on every (or named) controller.
+
+        The canonical no-arg snapshot — aligns with the ecosystem
+        ``Manager.poll()`` shape shared by ``alicatlib.AlicatManager``,
+        ``sartoriuslib.SartoriusManager``, and
+        ``nidaqlib.DaqManager``: one :class:`DeviceResult` per device,
+        keyed by name. Cross-port reads run concurrently; same-port
+        reads serialise on the shared client lock.
+
+        For multi-parameter / multi-instance polling use :meth:`poll_many`.
+        """
+        targets = self._resolve_names(names)
+        groups = self._group_by_port(targets)
+        results: dict[str, DeviceResult[Reading]] = {}
+        result_lock = anyio.Lock()
+
+        async def _run_group(member_names: list[str]) -> None:
+            for member in member_names:
+                entry = self._devices[member]
+                try:
+                    reading = await entry.controller.read_pv(instance=instance)
+                except WatlowError as err:
+                    async with result_lock:
+                        results[member] = DeviceResult(value=None, error=err)
+                else:
+                    async with result_lock:
+                        results[member] = DeviceResult(value=reading, error=None)
+
+        async with anyio.create_task_group() as tg:
+            for member_names in groups.values():
+                tg.start_soon(_run_group, member_names)
+
+        return results
+
+    async def poll_many(
+        self,
         parameters: Sequence[str | int],
         *,
         names: Sequence[str] | None = None,
@@ -473,24 +515,15 @@ class WatlowManager:
             for member in member_names:
                 entry = self._devices[member]
                 controller = entry.controller
-                protocol = controller.session.protocol_kind
                 try:
                     value = await op(controller)
                 except WatlowError as err:
                     async with result_lock:
-                        results[member] = DeviceResult(
-                            value=None,
-                            error=err,
-                            protocol=protocol,
-                        )
+                        results[member] = DeviceResult(value=None, error=err)
                         errors.append(err)
                 else:
                     async with result_lock:
-                        results[member] = DeviceResult(
-                            value=value,
-                            error=None,
-                            protocol=protocol,
-                        )
+                        results[member] = DeviceResult(value=value, error=None)
 
         async with anyio.create_task_group() as tg:
             for member_names in groups.values():
@@ -674,7 +707,7 @@ class WatlowManager:
     async def _teardown_device(self, entry: _DeviceEntry) -> None:
         """Release a controller's port ref, closing the transport on last ref.
 
-        Calling :meth:`Controller.aclose` would close the underlying
+        Calling :meth:`Controller.close` would close the underlying
         transport, which is shared across controllers on one RS-485
         bus. Instead, the manager releases the port ref and only
         closes the transport via :meth:`_maybe_teardown_port` once no

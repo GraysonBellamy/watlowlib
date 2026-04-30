@@ -51,7 +51,7 @@ from watlowlib.streaming.sample import Sample
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 
-    from anyio.streams.memory import MemoryObjectSendStream
+    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 __all__ = [
     "AcquisitionSummary",
@@ -85,6 +85,11 @@ class OverflowPolicy(Enum):
 
     DROP_NEWEST = "drop_newest"
     """Drop the batch that was about to be enqueued. Counted as late."""
+
+    DROP_OLDEST = "drop_oldest"
+    """Evict the oldest queued batch and enqueue the newest. Useful for
+    real-time monitoring where the latest reading matters more than
+    historical buffer contents. Each evicted batch is counted as late."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +140,7 @@ class PollSource(Protocol):
     never sees them.
     """
 
-    async def poll(
+    async def poll_many(
         self,
         parameters: Sequence[str | int],
         *,
@@ -244,6 +249,11 @@ async def record(
     send_stream, receive_stream = anyio.create_memory_object_stream[Sequence[Sample]](
         max_buffer_size=buffer_size,
     )
+    # Producer-side clone of the receive stream — used to evict the
+    # oldest queued batch under DROP_OLDEST. Cloning here (before the
+    # consumer starts iterating) keeps the eviction path off the
+    # consumer's iterator and avoids racing with it.
+    drop_rx = receive_stream.clone()
     stats = _RunStats()
 
     started_at = datetime.now(UTC)
@@ -262,6 +272,7 @@ async def record(
             await _run_producer(
                 source,
                 send_stream,
+                drop_rx,
                 tuple(parameters),
                 tuple(instances),
                 names,
@@ -317,6 +328,7 @@ class _RunStats:
 async def _run_producer(
     source: PollSource,
     send_stream: MemoryObjectSendStream[Sequence[Sample]],
+    drop_rx: MemoryObjectReceiveStream[Sequence[Sample]],
     parameters: tuple[str | int, ...],
     instances: tuple[int, ...],
     names: Sequence[str] | None,
@@ -361,7 +373,7 @@ async def _run_producer(
                 await anyio.sleep_until(target)
 
             try:
-                batch = await active_source.poll(
+                batch = await active_source.poll_many(
                     parameters,
                     names=names,
                     instances=instances,
@@ -395,14 +407,16 @@ async def _run_producer(
             drift_s = anyio.current_time() - target
             stats.max_drift_ms = max(stats.max_drift_ms, drift_s * 1_000.0)
 
-            await _publish(send_stream, batch, overflow, stats)
+            await _publish(send_stream, drop_rx, batch, overflow, stats)
             tick += 1
     finally:
         await send_stream.aclose()
+        await drop_rx.aclose()
 
 
 async def _publish(
     send_stream: MemoryObjectSendStream[Sequence[Sample]],
+    drop_rx: MemoryObjectReceiveStream[Sequence[Sample]],
     batch: Sequence[Sample],
     overflow: OverflowPolicy,
     stats: _RunStats,
@@ -423,4 +437,30 @@ async def _publish(
             return
         stats.emitted += 1
         return
+    if overflow is OverflowPolicy.DROP_OLDEST:
+        # Try the unblocked send first; if full, evict the oldest queued
+        # batch through the producer-side receive clone and retry.
+        try:
+            send_stream.send_nowait(batch)
+            stats.emitted += 1
+            return
+        except anyio.WouldBlock:
+            pass
+        while True:
+            try:
+                drop_rx.receive_nowait()
+                stats.late += 1
+                _logger.warning(
+                    "recorder.drop_oldest reason=consumer_backpressure",
+                )
+            except anyio.WouldBlock:
+                # Consumer won the race and made space after our failed send.
+                pass
+            try:
+                send_stream.send_nowait(batch)
+                stats.emitted += 1
+                return
+            except anyio.WouldBlock:
+                # Still full; loop and evict another queued item.
+                continue
     raise AssertionError(f"unreachable overflow policy: {overflow!r}")

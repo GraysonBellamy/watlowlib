@@ -48,7 +48,7 @@ async def test_manager_add_prebuilt_controller(anyio_backend: object) -> None:
         assert mgr.names == ("ctl1",)
         assert mgr.get("ctl1") is controller
 
-        samples = await mgr.poll(["process_value"])
+        samples = await mgr.poll_many(["process_value"])
         assert len(samples) == 1
         assert samples[0].device == "ctl1"
         assert samples[0].parameter == "process_value"
@@ -64,7 +64,7 @@ async def test_manager_add_with_transport_source(anyio_backend: object) -> None:
     try:
         async with WatlowManager() as mgr:
             await mgr.add("ctl1", transport, protocol=ProtocolKind.STDBUS, address=1)
-            samples = await mgr.poll(["process_value"])
+            samples = await mgr.poll_many(["process_value"])
         assert len(samples) == 1
     finally:
         await transport.close()
@@ -105,7 +105,7 @@ async def test_manager_unknown_name_in_poll(anyio_backend: object) -> None:
     _ = anyio_backend
     async with WatlowManager() as mgr:
         with pytest.raises(WatlowValidationError, match="unknown controller"):
-            await mgr.poll(["process_value"], names=["nope"])
+            await mgr.poll_many(["process_value"], names=["nope"])
 
 
 @pytest.mark.anyio
@@ -321,7 +321,7 @@ async def test_cross_port_polls_dont_serialise(anyio_backend: object) -> None:
         async with WatlowManager() as mgr:
             await mgr.add("ctl1", t1, protocol=ProtocolKind.STDBUS, address=1)
             await mgr.add("ctl2", t2, protocol=ProtocolKind.STDBUS, address=1)
-            samples = await mgr.poll(["process_value"])
+            samples = await mgr.poll_many(["process_value"])
         names = {s.device for s in samples}
         assert names == {"ctl1", "ctl2"}
     finally:
@@ -379,7 +379,6 @@ async def test_execute_each_collects_per_device_results(anyio_backend: object) -
         assert set(results.keys()) == {"ctl1", "ctl2"}
         for name, result in results.items():
             assert result.ok, f"{name}: {result.error!r}"
-            assert result.protocol is ProtocolKind.STDBUS
     finally:
         await t1.close()
         await t2.close()

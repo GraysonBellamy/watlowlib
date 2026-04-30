@@ -201,10 +201,10 @@ class SyncWatlowManager:
         names: Sequence[str] | None = None,
         instances: Sequence[int] = (1,),
     ) -> list[Sample]:
-        """Blocking :meth:`WatlowManager.poll`."""
+        """Blocking :meth:`WatlowManager.poll_many`."""
         mgr = self._require_mgr()
         return self.portal.call(
-            mgr.poll,
+            mgr.poll_many,
             parameters,
             names=names,
             instances=instances,

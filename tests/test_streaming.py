@@ -79,7 +79,7 @@ async def test_controller_poll_returns_samples(anyio_backend: object) -> None:
         serial_settings=settings,
     )
     async with controller as ctl:
-        samples = await ctl.poll(["process_value"])
+        samples = await ctl.poll_many(["process_value"])
     assert len(samples) == 1
     sample = samples[0]
     assert sample.parameter == "process_value"
@@ -106,7 +106,7 @@ async def test_controller_poll_drops_unknown_parameter(anyio_backend: object) ->
         serial_settings=settings,
     )
     async with controller as ctl:
-        samples = await ctl.poll(["process_value", "definitely_not_a_real_parameter"])
+        samples = await ctl.poll_many(["process_value", "definitely_not_a_real_parameter"])
     # Only the valid parameter produced a sample; the unknown one was logged + skipped.
     assert len(samples) == 1
     assert samples[0].parameter == "process_value"
@@ -127,7 +127,7 @@ class _StubSource:
         self._batch = batch
         self.call_count = 0
 
-    async def poll(
+    async def poll_many(
         self,
         parameters: Sequence[str | int],
         *,
@@ -237,4 +237,28 @@ async def test_record_drop_newest_when_consumer_blocks(anyio_backend: object) ->
             await anyio.sleep(0.02)
     # Source was invoked more times than we received batches — the
     # over-budget batches were dropped, not stuck waiting.
+    assert source.call_count >= len(received)
+
+
+@pytest.mark.anyio
+async def test_record_drop_oldest_when_consumer_blocks(anyio_backend: object) -> None:
+    """Slow consumer + DROP_OLDEST policy: producer evicts the oldest queued batch."""
+    _ = anyio_backend
+    source = _StubSource([_stub_sample()])
+    received: list[int] = []
+    async with record(
+        source,
+        parameters=["process_value"],
+        rate_hz=200.0,
+        duration=0.05,
+        overflow=OverflowPolicy.DROP_OLDEST,
+        buffer_size=1,
+    ) as stream:
+        # Drain slowly — under DROP_OLDEST stale batches get evicted in
+        # favour of the latest reading. The consumer never blocks.
+        async for batch in stream:
+            received.append(len(batch))
+            await anyio.sleep(0.02)
+    # Source was invoked more times than we received — extra batches
+    # were evicted from the queue, not buffered indefinitely.
     assert source.call_count >= len(received)

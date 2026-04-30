@@ -133,7 +133,7 @@ def test_watlow_open_against_fixture(fixture_path: Path) -> None:
             assert pv.value is not None
             assert pv.protocol is ProtocolKind.STDBUS
         finally:
-            portal.call(async_ctl.aclose)
+            portal.call(async_ctl.close)
 
 
 def test_sync_controller_loop_view_lowers_to_async(fixture_path: Path) -> None:
@@ -148,7 +148,7 @@ def test_sync_controller_loop_view_lowers_to_async(fixture_path: Path) -> None:
             assert isinstance(loop, SyncControllerLoop)
             assert loop.number == 1
         finally:
-            portal.call(async_ctl.aclose)
+            portal.call(async_ctl.close)
 
 
 # ---------------------------------------------------------------- sync manager

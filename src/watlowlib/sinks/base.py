@@ -102,7 +102,7 @@ class SampleSink(Protocol):
 # ---------------------------------------------------------------------------
 
 
-def sample_to_row(sample: Sample) -> dict[str, float | int | str | None]:
+def sample_to_row(sample: Sample) -> dict[str, float | int | str | bool | None]:
     """Flatten a :class:`Sample` into a single row dict for tabular sinks.
 
     Long-format schema (one row per parameter read), stable across all
