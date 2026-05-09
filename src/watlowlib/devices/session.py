@@ -30,6 +30,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from watlowlib._lock import maybe_acquire
 from watlowlib._logging import get_logger
 from watlowlib.commands.base import CommandContext
 from watlowlib.config import DEFAULTS
@@ -219,8 +220,14 @@ class Session:
         # Hold the per-port client lock only for the I/O turn-around.
         # Decode is CPU-only and does not need to block the next
         # request waiting on the same RS-485 segment; ``reply`` is
-        # snapshotted before the lock releases.
-        async with self._client.lock:
+        # snapshotted before the lock releases. ``maybe_acquire``
+        # reuses an existing acquisition when the caller (e.g.
+        # ``poll_controller``'s tick batch, or
+        # ``WatlowManager._run_group``'s port batch) already holds
+        # the lock — avoids the FIFO-queue starvation that would
+        # otherwise let unrelated writers interleave between a
+        # batch's reads.
+        async with maybe_acquire(self._client.lock):
             try:
                 reply = await self._client.execute(
                     wire_request,

@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Recorder lock starvation under command-heavy load.** The per-tick
+  `poll_many` batch now acquires the per-port lock once for the
+  entire batch instead of N times (one per parameter × instance).
+  Concurrent writers on the same port can no longer interleave
+  between two reads of the same tick, and tick latency is bounded by
+  one queue traversal regardless of the parameter count. The fix is
+  unconditional — no opt-in flag — and reuses the existing
+  `anyio.Lock` via an owner-check, so `Session.execute` and the
+  manager's per-port group all compose under a single lock without
+  deadlocking. `WatlowManager.poll_many` likewise acquires the
+  shared port lock once around all devices in the same port group.
+
 ### Added
+
+- `AcquisitionSummary.tick_duration_ms_p50` and
+  `AcquisitionSummary.tick_duration_ms_p99` — wall-clock per-tick
+  duration percentiles, populated by the recorder and emitted in the
+  `recorder.stop` log line. Compares directly to `1000 / rate_hz`;
+  a large gap between p99 and p50 indicates another task is
+  competing for the per-port lock during writes.
+- `watlowlib._lock.maybe_acquire(lock)` — internal helper used by
+  the session, the streaming poll loop, and the manager port-group
+  loop to compose batched acquisition without a parallel `_locked`
+  API surface.
+
+## [0.1.0] — initial alpha
 
 Initial alpha release of `watlowlib` — an async-first Python driver
 for Watlow temperature controllers over RS-232 / EIA-485, modeled on

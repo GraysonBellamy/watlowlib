@@ -35,9 +35,10 @@ Design reference: ``docs/design.md`` §6.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol
@@ -111,6 +112,16 @@ class AcquisitionSummary:
             A healthy run stays well under one period; values
             approaching ``1000 / rate_hz`` indicate the device or
             consumer is saturating the schedule.
+        tick_duration_ms_p50: Median wall-clock duration of a single
+            ``source.poll_many(...)`` call across the run, in
+            milliseconds. Compares directly to ``1000 / rate_hz`` —
+            if it approaches the period, the schedule is saturated.
+        tick_duration_ms_p99: 99th-percentile tick duration, in
+            milliseconds. Surfaces the rare-but-bad cases where a
+            tick stalled behind a contended port lock or a slow
+            EEPROM commit. A large gap between ``p99`` and ``p50``
+            usually means another task is competing for the per-port
+            lock during writes.
         disconnects: Count of WatlowConnectionError events the
             producer absorbed under ``auto_reconnect=True``. Always
             ``0`` when ``auto_reconnect`` was off.
@@ -121,6 +132,8 @@ class AcquisitionSummary:
     samples_emitted: int
     samples_late: int
     max_drift_ms: float
+    tick_duration_ms_p50: float = 0.0
+    tick_duration_ms_p99: float = 0.0
     disconnects: int = 0
 
 
@@ -293,19 +306,25 @@ async def record(
             tg.cancel_scope.cancel()
 
     finished_at = datetime.now(UTC)
+    p50, p99 = _tick_percentiles(stats.tick_durations_ms)
     summary = AcquisitionSummary(
         started_at=started_at,
         finished_at=finished_at,
         samples_emitted=stats.emitted,
         samples_late=stats.late,
         max_drift_ms=stats.max_drift_ms,
+        tick_duration_ms_p50=p50,
+        tick_duration_ms_p99=p99,
         disconnects=stats.disconnects,
     )
     _logger.info(
-        "recorder.stop emitted=%s late=%s max_drift_ms=%.3f duration_s=%.3f",
+        "recorder.stop emitted=%s late=%s max_drift_ms=%.3f "
+        "tick_p50_ms=%.3f tick_p99_ms=%.3f duration_s=%.3f",
         summary.samples_emitted,
         summary.samples_late,
         summary.max_drift_ms,
+        summary.tick_duration_ms_p50,
+        summary.tick_duration_ms_p99,
         (finished_at - started_at).total_seconds(),
     )
 
@@ -313,6 +332,33 @@ async def record(
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _tick_percentiles(values: list[float]) -> tuple[float, float]:
+    """Compute (p50, p99) over ``values`` with linear interpolation.
+
+    Returns ``(0.0, 0.0)`` for an empty input. For a single value,
+    both percentiles equal that value. Otherwise uses the standard
+    ``i = p * (n - 1)`` indexing with linear interpolation between
+    adjacent ranks — same convention as :func:`numpy.percentile` with
+    its default ``linear`` method.
+    """
+    if not values:
+        return 0.0, 0.0
+    sorted_v = sorted(values)
+    n = len(sorted_v)
+    if n == 1:
+        return sorted_v[0], sorted_v[0]
+
+    def _q(p: float) -> float:
+        k = (n - 1) * p
+        f = int(k)
+        c = min(f + 1, n - 1)
+        if f == c:
+            return sorted_v[f]
+        return sorted_v[f] * (c - k) + sorted_v[c] * (k - f)
+
+    return _q(0.5), _q(0.99)
 
 
 @dataclass(slots=True)
@@ -323,6 +369,11 @@ class _RunStats:
     late: int = 0
     max_drift_ms: float = 0.0
     disconnects: int = 0
+    # One entry per successful poll (auto-reconnect failures are not
+    # recorded — those are bulk waits, not tick durations). Bounded by
+    # ``total_ticks`` for finite runs; for indefinite runs, memory
+    # scales with run length (~24 B per float).
+    tick_durations_ms: list[float] = field(default_factory=list[float])
 
 
 async def _run_producer(
@@ -372,6 +423,7 @@ async def _run_producer(
             if anyio.current_time() < target:
                 await anyio.sleep_until(target)
 
+            tick_start = time.monotonic()
             try:
                 batch = await active_source.poll_many(
                     parameters,
@@ -404,6 +456,8 @@ async def _run_producer(
                 continue
 
             backoff_idx = 0
+            tick_duration_ms = (time.monotonic() - tick_start) * 1_000.0
+            stats.tick_durations_ms.append(tick_duration_ms)
             drift_s = anyio.current_time() - target
             stats.max_drift_ms = max(stats.max_drift_ms, drift_s * 1_000.0)
 

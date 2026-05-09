@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 
+from watlowlib._lock import maybe_acquire
 from watlowlib._logging import get_logger
 from watlowlib.devices.controller import Controller
 from watlowlib.devices.session import Session
@@ -455,7 +456,11 @@ class WatlowManager:
         parameter, instance) read that succeeded. Failed reads are
         dropped from the list and logged at WARN. Cross-port reads run
         concurrently; same-port reads serialise on the shared client
-        lock.
+        lock, which is acquired **once per port-group batch** so a
+        queued writer cannot land between two reads of the same poll.
+        Lock occupancy therefore scales O(devices × parameters × per-
+        read time) per port — the trade-off for a coherent multi-
+        device snapshot.
 
         This satisfies the :class:`watlowlib.streaming.PollSource`
         Protocol so a manager can drive :func:`watlowlib.streaming.record`
@@ -469,16 +474,23 @@ class WatlowManager:
 
         async def _run_group(member_names: list[str]) -> None:
             local: list[Sample] = []
-            for member in member_names:
-                entry = self._devices[member]
-                local.extend(
-                    await poll_controller(
-                        entry.controller,
-                        name=member,
-                        parameters=parameters,
-                        instances=instances,
-                    ),
-                )
+            # All controllers in ``member_names`` share the same physical
+            # port and therefore the same protocol client and lock.
+            # Acquire once around the whole group so the inner
+            # ``poll_controller`` (which uses ``maybe_acquire``) reuses
+            # the acquisition rather than queueing per-controller.
+            port_lock = self._devices[member_names[0]].controller.session.client.lock
+            async with maybe_acquire(port_lock):
+                for member in member_names:
+                    entry = self._devices[member]
+                    local.extend(
+                        await poll_controller(
+                            entry.controller,
+                            name=member,
+                            parameters=parameters,
+                            instances=instances,
+                        ),
+                    )
             async with result_lock:
                 all_samples.extend(local)
 
