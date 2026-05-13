@@ -78,8 +78,9 @@ src/watlowlib/
     families.py    # ControllerFamily {PM, RM, ST, EZZONE_LIMIT, F4T, UNKNOWN}
                    # + classify_family(part_number)
     enumerations.py# load data/enumerations.json (Heat Algo, Sensor Type, ...)
-    units.py       # TemperatureUnit, OutputUnit (compact, Watlow doesn't have
-                   # alicat's gas zoo)
+    units.py       # Unit {CELSIUS, FAHRENHEIT, PERCENT} +
+                   # UnitKind {temperature, percent, dimensionless,
+                   # enumeration, string} declared per registry row
     aliases.py     # fuzzy-string resolvers ("setpoint" → 7001)
   data/
     pm_parameters.json     # already extracted
@@ -378,7 +379,7 @@ All frozen, `slots=True`. `py.typed` ships.
 @dataclass(frozen=True, slots=True)
 class Reading:
     value: float | None              # None on overload / sensor-fail sentinel
-    unit: TemperatureUnit | None     # None when the source is unitless or unknown
+    unit: Unit | None                # None when the source is unitless or unknown
     received_at: datetime
     monotonic_ns: int
     raw: bytes                       # original payload for debugging

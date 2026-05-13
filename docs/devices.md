@@ -142,6 +142,46 @@ async with await open_device("/dev/ttyUSB0", address=1) as ctl:
 single-loop SKUs default to `loops=1`; `Controller.read_pv()` is
 shorthand for `Controller.loop(1).read_pv()`.
 
+## Units (parameter 17050, not 3005)
+
+Watlow PM controllers carry **two** display-unit registers:
+
+| ID    | Name                            | What it controls                                          |
+| ----- | ------------------------------- | --------------------------------------------------------- |
+| 3005  | Display - Units                 | Front-panel temperature scale (visible on the device).    |
+| 17050 | Communications - Display Units  | Unit applied to temperature values sent over comms.       |
+
+`watlowlib` reads values over comms, so every `Reading.unit` is
+tagged from **17050**. The two registers can diverge on a real device:
+the front panel can read °F while the wire reports °C. If a value
+looks off, check both registers.
+
+The session reads 17050 once, lazily, on the first temperature read,
+and caches the result. The cache is invalidated by
+`set_display_units`; otherwise it lives for the session's lifetime.
+
+```python
+from watlowlib import Unit
+
+async with await open_device("/dev/ttyUSB0", address=1) as ctl:
+    pv = await ctl.read_pv()
+    assert pv.unit is Unit.FAHRENHEIT  # if the device is in °F
+
+    # Read the cached unit explicitly.
+    current = await ctl.read_display_units()  # Unit | None
+
+    # Flip the comms unit (RWE; persists across power cycles).
+    await ctl.set_display_units(Unit.CELSIUS, confirm=True)
+
+    # Front-panel register stays reachable through the raw parameter API.
+    panel = await ctl.read_parameter("units")  # parameter 3005
+```
+
+`set_display_units` accepts a `Unit` or a case-insensitive alias
+(`"C"`, `"F"`, `"celsius"`, `"degF"`, `"°C"`). Raw device codes (15
+for Celsius, 30 for Fahrenheit) belong on the lower-level
+`write_parameter("display_units", code)` path.
+
 ## Discovery
 
 [`sweep_stdbus(port)`](../src/watlowlib/devices/discovery.py) walks

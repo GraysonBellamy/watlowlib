@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from watlowlib.protocol.base import ProtocolKind
     from watlowlib.registry.families import ControllerFamily
     from watlowlib.registry.parameters import ParameterSpec
-    from watlowlib.registry.units import TemperatureUnit
+    from watlowlib.registry.units import Unit
     from watlowlib.transport.base import SerialSettings
 
 __all__ = [
@@ -59,7 +59,7 @@ class Reading:
     """
 
     value: float | None
-    unit: TemperatureUnit | None
+    unit: Unit | None
     received_at: datetime
     monotonic_ns: int
     raw: bytes

@@ -19,13 +19,17 @@ import pytest
 
 from watlowlib import (
     Availability,
+    Controller,
     FakeTransport,
     ProtocolKind,
     SerialSettings,
+    Unit,
     WatlowConfirmationRequiredError,
     WatlowNoSuchObjectError,
+    WatlowValidationError,
     open_controller,
 )
+from watlowlib.protocol.stdbus.framing import Frame, encode_frame
 
 # ---- captured PM3 round-trips ------------------------------------------
 
@@ -159,3 +163,179 @@ async def test_unsupported_object_marks_availability(anyio_backend: object) -> N
         with pytest.raises(WatlowProtocolUnsupportedError):
             await ctl.read_pv()
         assert len(transport.writes) == write_count_before
+
+
+# ---------------------------------------------------------------------------
+# Display unit (parameter 17050) — units-plan
+# ---------------------------------------------------------------------------
+
+# Parameter 17050 (display_units) read at instance 1.
+REQ_READ_DU = bytes.fromhex("55ff0510000006e801030111320101b9")
+# Read response → 30 (Fahrenheit) / 15 (Celsius).
+RSP_READ_DU_F = bytes.fromhex("55ff060010000a760203011132010f01001e8a93")
+RSP_READ_DU_C = bytes.fromhex("55ff060010000a760203011132010f01000f8292")
+# Write display_units = 15 (Celsius) and the device's PACKED echo.
+REQ_WRITE_DU_C = bytes.fromhex("55ff0510000009ed01041132010f01000fc814")
+RSP_WRITE_DU_C = bytes.fromhex("55ff06001000097702041132010f01000fcfc2")
+# 0x81 NO_SUCH_OBJECT — a device that doesn't implement 17050.
+RSP_READ_DU_ERR = bytes.fromhex("55ff06001000028f028176a9")
+
+
+async def _open_stdbus(
+    script: dict[bytes, bytes],
+) -> tuple[FakeTransport, Controller]:
+    transport = FakeTransport(script)
+    settings = SerialSettings(port="fake://test")
+    controller = await open_controller(
+        transport,
+        protocol=ProtocolKind.STDBUS,
+        address=1,
+        serial_settings=settings,
+    )
+    return transport, controller
+
+
+@pytest.mark.anyio
+async def test_read_pv_carries_display_unit_fahrenheit(anyio_backend: object) -> None:
+    """Temperature reads tag their ``Reading.unit`` from cached 17050."""
+    _ = anyio_backend
+    transport, controller = await _open_stdbus(
+        {REQ_READ_DU: RSP_READ_DU_F, REQ_READ_PV: RSP_READ_PV},
+    )
+    async with controller as ctl:
+        pv = await ctl.read_pv()
+        assert pv.unit is Unit.FAHRENHEIT
+        # Cache hot: a second PV read must NOT re-query 17050.
+        await ctl.read_pv()
+        assert transport.writes.count(REQ_READ_DU) == 1
+
+
+@pytest.mark.anyio
+async def test_read_pv_carries_display_unit_celsius(anyio_backend: object) -> None:
+    _ = anyio_backend
+    _transport, controller = await _open_stdbus(
+        {REQ_READ_DU: RSP_READ_DU_C, REQ_READ_PV: RSP_READ_PV},
+    )
+    async with controller as ctl:
+        pv = await ctl.read_pv()
+        assert pv.unit is Unit.CELSIUS
+
+
+@pytest.mark.anyio
+async def test_read_pv_with_no_17050_support_yields_unit_none(
+    anyio_backend: object,
+) -> None:
+    """Device that rejects 17050 → ``Reading.unit = None`` and no re-query."""
+    _ = anyio_backend
+    transport, controller = await _open_stdbus(
+        {REQ_READ_DU: RSP_READ_DU_ERR, REQ_READ_PV: RSP_READ_PV},
+    )
+    async with controller as ctl:
+        pv = await ctl.read_pv()
+        assert pv.unit is None
+        # The cache remembers "asked and got nothing".
+        await ctl.read_pv()
+        assert transport.writes.count(REQ_READ_DU) == 1
+
+
+@pytest.mark.anyio
+async def test_set_display_units_round_trip(anyio_backend: object) -> None:
+    """``set_display_units(CELSIUS, confirm=True)`` writes 15 and re-reads as Celsius."""
+    _ = anyio_backend
+    transport, controller = await _open_stdbus(
+        {
+            REQ_READ_DU: RSP_READ_DU_C,
+            REQ_WRITE_DU_C: RSP_WRITE_DU_C,
+        },
+    )
+    async with controller as ctl:
+        result = await ctl.set_display_units(Unit.CELSIUS, confirm=True)
+        assert result is Unit.CELSIUS
+        assert REQ_WRITE_DU_C in transport.writes
+        # Post-write re-read of 17050 — exactly one wire read.
+        assert transport.writes.count(REQ_READ_DU) == 1
+
+
+@pytest.mark.anyio
+async def test_set_display_units_accepts_string_alias(anyio_backend: object) -> None:
+    _ = anyio_backend
+    _transport, controller = await _open_stdbus(
+        {REQ_READ_DU: RSP_READ_DU_C, REQ_WRITE_DU_C: RSP_WRITE_DU_C},
+    )
+    async with controller as ctl:
+        result = await ctl.set_display_units("celsius", confirm=True)
+        assert result is Unit.CELSIUS
+
+
+@pytest.mark.anyio
+async def test_set_display_units_requires_confirm(anyio_backend: object) -> None:
+    """No-confirm raises pre-I/O — the write bytes never hit the wire."""
+    _ = anyio_backend
+    transport, controller = await _open_stdbus({})
+    async with controller as ctl:
+        with pytest.raises(WatlowConfirmationRequiredError):
+            await ctl.set_display_units(Unit.CELSIUS)
+        assert REQ_WRITE_DU_C not in transport.writes
+
+
+@pytest.mark.anyio
+async def test_set_display_units_rejects_percent(anyio_backend: object) -> None:
+    _ = anyio_backend
+    transport, controller = await _open_stdbus({})
+    async with controller as ctl:
+        with pytest.raises(WatlowValidationError, match="PERCENT"):
+            await ctl.set_display_units(Unit.PERCENT, confirm=True)
+        assert transport.writes == ()
+
+
+@pytest.mark.anyio
+async def test_set_display_units_rejects_unknown_alias(anyio_backend: object) -> None:
+    _ = anyio_backend
+    transport, controller = await _open_stdbus({})
+    async with controller as ctl:
+        with pytest.raises(WatlowValidationError, match="unknown unit alias"):
+            await ctl.set_display_units("kelvin", confirm=True)
+        assert transport.writes == ()
+
+
+@pytest.mark.anyio
+async def test_set_display_units_rejects_raw_int(anyio_backend: object) -> None:
+    """Raw 17050 codes (15, 30) go through ``write_parameter``, not this facade."""
+    _ = anyio_backend
+    transport, controller = await _open_stdbus({})
+    async with controller as ctl:
+        with pytest.raises(WatlowValidationError):
+            await ctl.set_display_units(30, confirm=True)  # type: ignore[arg-type]
+        assert transport.writes == ()
+
+
+@pytest.mark.anyio
+async def test_read_output_carries_percent(anyio_backend: object) -> None:
+    """``read_output`` returns a Reading with ``unit=Unit.PERCENT``; no 17050 fetch."""
+    _ = anyio_backend
+    from watlowlib import PARAMETERS
+    from watlowlib.commands import (
+        READ_PARAMETER,
+        CommandContext,
+        ReadParameterRequest,
+    )
+    from watlowlib.protocol.stdbus.tlv import DataType, encode_value
+
+    ctx = CommandContext(registry=PARAMETERS)
+    spec_op = PARAMETERS.resolve("output_power")
+    assert READ_PARAMETER.stdbus is not None
+    op_payload = READ_PARAMETER.stdbus.encode(ctx, ReadParameterRequest("output_power"))
+    req_op = encode_frame(Frame(frame_type=0x05, dst=0x10, src=0x00, payload=op_payload))
+    rsp_payload = bytes([0x02, 0x03, 0x01, spec_op.cls, spec_op.member, 1]) + encode_value(
+        DataType.FLOAT,
+        42.5,
+    )
+    rsp_op = encode_frame(Frame(frame_type=0x06, dst=0x00, src=0x10, payload=rsp_payload))
+
+    transport, controller = await _open_stdbus({req_op: rsp_op})
+    async with controller as ctl:
+        out = await ctl.loop(1).read_output()
+        assert out.unit is Unit.PERCENT
+        assert out.value is not None
+        # Percent read does NOT consult 17050.
+        assert REQ_READ_DU not in transport.writes

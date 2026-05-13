@@ -131,7 +131,8 @@ documents the human meanings. Common ones:
 | `heat_algorithm`  | `62` Off, `63` PID, `71` On-Off |
 | `cool_algorithm`  | `62` Off, `63` PID, `71` On-Off |
 | `tc_type`         | `J`, `K`, `T`, `S`, `R`, `B`, `N`, `E`, `C` |
-| `display_units`   | `15` °F, `30` °C |
+| `units`           | `15` °C, `30` °F — parameter 3005, front-panel display |
+| `display_units`   | `15` °C, `30` °F — parameter 17050, comms display (the wire-side unit) |
 
 Reading an enumerated parameter returns the integer; the facade does
 not auto-decode to a label (so callers can write back round-trip safe

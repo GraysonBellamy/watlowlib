@@ -29,6 +29,7 @@ from watlowlib.errors import WatlowProtocolError, WatlowValidationError
 from watlowlib.protocol.stdbus.tlv import DataType
 from watlowlib.registry.aliases import DEFAULT_ALIASES
 from watlowlib.registry.families import ControllerFamily
+from watlowlib.registry.units import UnitKind
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -128,6 +129,7 @@ class ParameterSpec:
     name: str
     aliases: frozenset[str]
     data_type: DataType
+    unit_kind: UnitKind
     rwes: RwesFlag
     safety: SafetyTier
     cls: int
@@ -242,6 +244,23 @@ def _build_spec(raw: dict[str, Any]) -> ParameterSpec | None:
     rwes = _RWES_NORMALISE[raw_rwes]
 
     parameter_id = int(raw["parameter_id"])
+
+    # ``unit_kind`` is required on every loadable row. Fail loud (per
+    # design's "fail loud, fail typed" rule) so a typo or missing edit
+    # in pm_parameters.json surfaces in CI rather than producing rows
+    # that silently classify as the wrong family at read time.
+    raw_unit_kind = raw.get("unit_kind")
+    if raw_unit_kind is None:
+        raise WatlowProtocolError(
+            f"parameter row {parameter_id} is missing required 'unit_kind' field",
+        )
+    try:
+        unit_kind = UnitKind(raw_unit_kind)
+    except ValueError as exc:
+        raise WatlowProtocolError(
+            f"parameter row {parameter_id} has unknown unit_kind: {raw_unit_kind!r}",
+        ) from exc
+
     cls = int(raw["class_id"])
     member = int(raw["member_id"])
     default_instance = int(raw.get("instance_id") or 1)
@@ -263,6 +282,7 @@ def _build_spec(raw: dict[str, Any]) -> ParameterSpec | None:
         name=canonical,
         aliases=frozenset(),  # filled in by ParameterRegistry from the alias table
         data_type=data_type,
+        unit_kind=unit_kind,
         rwes=rwes,
         safety=_safety_from_rwes(rwes),
         cls=cls,
@@ -309,9 +329,11 @@ _NAME_OVERRIDES: dict[int, str] = {
     1002: "firmware_id",
     1009: "part_number",
     1011: "device_name",
+    3005: "units",  # front-panel display unit (RWES)
     4001: "process_value",
     7001: "setpoint",
     7011: "fixed_power",
+    17050: "display_units",  # comms display unit — the wire-side scale
 }
 
 
@@ -347,6 +369,7 @@ class ParameterRegistry:
                     name=name,
                     aliases=frozenset(spec_aliases),
                     data_type=spec.data_type,
+                    unit_kind=spec.unit_kind,
                     rwes=spec.rwes,
                     safety=spec.safety,
                     cls=spec.cls,
@@ -365,11 +388,27 @@ class ParameterRegistry:
             rebound.append(spec)
 
         self._specs: tuple[ParameterSpec, ...] = tuple(rebound)
+        # A handful of canonical names auto-derived by ``_canonical_name``
+        # collide across unrelated rows (e.g. "Display - Units",
+        # "Analog Input - Units", and "Linearization - Units" all
+        # canonicalise to ``"units"``). When an :data:`_NAME_OVERRIDES`
+        # entry targets one of those collision names, the override row
+        # wins — otherwise the JSON's iteration order silently decided
+        # which spec a public name like ``"units"`` resolved to.
+        override_owner: dict[str, int] = {
+            name.lower(): pid for pid, name in _NAME_OVERRIDES.items()
+        }
         by_id: dict[int, ParameterSpec] = {}
         by_name: dict[str, ParameterSpec] = {}
         for spec in self._specs:
             by_id[spec.parameter_id] = spec
-            by_name[spec.name.lower()] = spec
+            key = spec.name.lower()
+            owner = override_owner.get(key)
+            if owner is not None and owner != spec.parameter_id:
+                # Another row's auto-canonical name collides with an
+                # override-assigned name; the override row owns the key.
+                continue
+            by_name[key] = spec
             for alias in spec.aliases:
                 by_name.setdefault(alias.lower(), spec)
         self._by_id: Mapping[int, ParameterSpec] = MappingProxyType(by_id)

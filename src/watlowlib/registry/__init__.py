@@ -20,19 +20,30 @@ from watlowlib.registry.parameters import (
     RwesFlag,
     load_pm_parameters,
 )
-from watlowlib.registry.units import OutputUnit, TemperatureUnit
+from watlowlib.registry.units import (
+    Unit,
+    UnitKind,
+    coerce_unit,
+    display_code_for_unit,
+    resolve_unit,
+    unit_from_display_code,
+)
 
 __all__ = [
     "DEFAULT_ALIASES",
     "PARAMETERS",
     "ControllerFamily",
     "EnumerationRow",
-    "OutputUnit",
     "ParameterRegistry",
     "ParameterSpec",
     "RwesFlag",
-    "TemperatureUnit",
+    "Unit",
+    "UnitKind",
     "classify_family",
+    "coerce_unit",
+    "display_code_for_unit",
     "load_enumerations",
     "load_pm_parameters",
+    "resolve_unit",
+    "unit_from_display_code",
 ]

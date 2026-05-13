@@ -37,7 +37,7 @@ acquisition helpers, and pluggable sinks.
   the Modbus register addresses for every parameter — so
   `read_parameter("setpoint")` lowers to either protocol from one
   shared registry.
-- **Typed end to end.** `TemperatureUnit.F`,
+- **Typed end to end.** `Unit.FAHRENHEIT`,
   `Capability.HAS_COOLING`, frozen-dataclass responses, `py.typed`,
   `mypy --strict` clean.
 - **Typed errors.** `WatlowError` root with structured `ErrorContext`;

@@ -14,8 +14,6 @@ opens the transport on ``__aenter__`` and disposes the protocol client
 
 from __future__ import annotations
 
-import time
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Self
 
 from watlowlib.commands.parameters import (
@@ -24,6 +22,7 @@ from watlowlib.commands.parameters import (
     ReadParameterRequest,
     WriteParameterRequest,
 )
+from watlowlib.devices._reading import reading_from_entry
 from watlowlib.devices.loop import ControllerLoop
 from watlowlib.devices.models import (
     DeviceHealth,
@@ -32,7 +31,11 @@ from watlowlib.devices.models import (
     PartNumber,
     Reading,
 )
-from watlowlib.errors import WatlowProtocolError, WatlowTransportError
+from watlowlib.errors import (
+    WatlowProtocolError,
+    WatlowTransportError,
+    WatlowValidationError,
+)
 from watlowlib.protocol.base import ProtocolKind
 from watlowlib.registry.families import (
     ControllerFamily,
@@ -40,6 +43,7 @@ from watlowlib.registry.families import (
     decode_part_number,
     default_loops,
 )
+from watlowlib.registry.units import Unit, coerce_unit, display_code_for_unit
 
 # Wide-enumeration codes for parameter 17009 (Protocol). Mirrors the
 # ``maintenance.PROTOCOL_MODE_CODES`` table so ``identify`` can decode
@@ -198,12 +202,12 @@ class Controller:
     async def read_pv(self, *, instance: int = 1, timeout: float | None = None) -> Reading:
         """Read the process value for ``instance`` (loop number, 1-indexed)."""
         entry = await self.read_parameter("process_value", instance=instance, timeout=timeout)
-        return self._reading_from_entry(entry)
+        return await reading_from_entry(self._session, entry)
 
     async def read_setpoint(self, *, instance: int = 1, timeout: float | None = None) -> Reading:
         """Read the active setpoint for ``instance``."""
         entry = await self.read_parameter("setpoint", instance=instance, timeout=timeout)
-        return self._reading_from_entry(entry)
+        return await reading_from_entry(self._session, entry)
 
     async def set_setpoint(
         self,
@@ -226,7 +230,69 @@ class Controller:
             confirm=confirm,
             timeout=timeout,
         )
-        return self._reading_from_entry(entry)
+        return await reading_from_entry(self._session, entry)
+
+    # --- Display unit (typed facade for parameter 17050) ----------------
+
+    async def read_display_units(self, *, timeout: float | None = None) -> Unit | None:
+        """Read (and cache) the device's comms display unit.
+
+        Forces the lazy lookup of parameter 17050 (Communications -
+        Display Units), the unit Watlow applies to temperature values
+        sent over the wire. Returns ``None`` if the device doesn't
+        report a known code.
+
+        Distinct from ``read_parameter("units")``, which targets
+        parameter 3005 (front-panel display). The two can disagree on
+        a real device; we tag :class:`Reading.unit` from 17050 because
+        that's the unit on the wire.
+        """
+        del timeout  # display_unit() is cached + uses session defaults
+        return await self._session.display_unit()
+
+    async def set_display_units(
+        self,
+        unit: Unit | str,
+        *,
+        confirm: bool = False,
+        timeout: float | None = None,
+    ) -> Unit | None:
+        """Set the device's comms display unit (parameter 17050).
+
+        Accepts a :class:`Unit` or a case-insensitive string alias
+        (``"C"`` / ``"F"`` / ``"celsius"`` / ``"fahrenheit"`` /
+        ``"degC"`` / ``"degF"`` / ``"°C"`` / ``"°F"``).
+        :attr:`Unit.PERCENT` is rejected pre-I/O — the display-units
+        register is temperature-only.
+
+        Raw enumeration codes (15 / 30) are not accepted here. Callers
+        who want the lower-level path use
+        ``write_parameter("display_units", 30)``.
+
+        Persistent write (parameter 17050 is RWE); pass ``confirm=True``
+        to acknowledge the EEPROM write. The session raises
+        :class:`WatlowConfirmationRequiredError` pre-I/O if missing.
+
+        Returns the device-echoed unit after the write. ``None`` if
+        the device's echo decodes outside the known codes — should
+        not happen on a PM, but the read path is permissive.
+        """
+        resolved = coerce_unit(unit)
+        code = display_code_for_unit(resolved)
+        if code is None:
+            raise WatlowValidationError(
+                "set_display_units accepts CELSIUS / FAHRENHEIT only; "
+                "PERCENT is not a valid display-unit code",
+            )
+        # PERSISTENT write — session enforces ``confirm=True`` pre-I/O.
+        await self.write_parameter(
+            "display_units",
+            code,
+            confirm=confirm,
+            timeout=timeout,
+        )
+        self._session.invalidate_display_unit()
+        return await self._session.display_unit()
 
     # --- Streaming ------------------------------------------------------
 
@@ -399,14 +465,3 @@ class Controller:
         if isinstance(entry.value, str):
             return entry.value
         return None
-
-    def _reading_from_entry(self, entry: ParameterEntry) -> Reading:
-        value = float(entry.value) if isinstance(entry.value, int | float) else None
-        return Reading(
-            value=value,
-            unit=None,  # PM registry doesn't carry per-parameter unit yet.
-            received_at=datetime.now(UTC),
-            monotonic_ns=time.monotonic_ns(),
-            raw=entry.raw,
-            protocol=self._session.protocol_kind,
-        )

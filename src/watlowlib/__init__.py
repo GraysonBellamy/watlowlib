@@ -75,11 +75,11 @@ from watlowlib.manager import DeviceResult, ErrorPolicy, WatlowManager
 from watlowlib.protocol import ProtocolClient, ProtocolKind
 from watlowlib.registry import (
     PARAMETERS,
-    OutputUnit,
     ParameterRegistry,
     ParameterSpec,
     RwesFlag,
-    TemperatureUnit,
+    Unit,
+    UnitKind,
 )
 from watlowlib.sinks import (
     CsvSink,
@@ -128,7 +128,6 @@ __all__ = [
     "InMemorySink",
     "JsonlSink",
     "LoopState",
-    "OutputUnit",
     "OverflowPolicy",
     "ParameterEntry",
     "ParameterRegistry",
@@ -149,8 +148,9 @@ __all__ = [
     "SerialTransport",
     "Session",
     "SqliteSink",
-    "TemperatureUnit",
     "Transport",
+    "Unit",
+    "UnitKind",
     "WatlowCapabilityError",
     "WatlowCapabilityWarning",
     "WatlowConfigurationError",

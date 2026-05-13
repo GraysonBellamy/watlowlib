@@ -17,6 +17,7 @@ from watlowlib import (
     Sample,
     SampleSink,
     SqliteSink,
+    Unit,
     WatlowSinkSchemaError,
     pipe,
     sample_to_row,
@@ -95,6 +96,43 @@ def test_sample_to_row_coerces_bools_to_strings() -> None:
 def test_sample_to_row_passes_none_through() -> None:
     row = sample_to_row(_sample(value=None))
     assert row["value"] is None
+
+
+def _sample_with_unit(unit: Unit | str | None) -> Sample:
+    now = datetime.now(UTC)
+    return Sample(
+        device="ctl1",
+        address=1,
+        protocol=ProtocolKind.STDBUS,
+        parameter="process_value",
+        parameter_id=4001,
+        instance=1,
+        value=72.4,
+        unit=unit,
+        monotonic_ns=0,
+        requested_at=now,
+        received_at=now,
+        midpoint_at=now,
+        latency_s=0.0,
+        raw=b"",
+    )
+
+
+def test_sample_to_row_serialises_unit_enum_as_value() -> None:
+    """``Unit.FAHRENHEIT`` becomes the string ``"F"`` in the flat row."""
+    assert sample_to_row(_sample_with_unit(Unit.FAHRENHEIT))["unit"] == "F"
+    assert sample_to_row(_sample_with_unit(Unit.CELSIUS))["unit"] == "C"
+    assert sample_to_row(_sample_with_unit(Unit.PERCENT))["unit"] == "%"
+
+
+def test_sample_to_row_passes_string_unit_through() -> None:
+    """Cross-vendor rows (Alicat ``"psia"``, ``"sccm"``) stay as-is."""
+    assert sample_to_row(_sample_with_unit("psia"))["unit"] == "psia"
+    assert sample_to_row(_sample_with_unit("sccm"))["unit"] == "sccm"
+
+
+def test_sample_to_row_passes_none_unit_through() -> None:
+    assert sample_to_row(_sample_with_unit(None))["unit"] is None
 
 
 # ---------------------------------------------------------------------------

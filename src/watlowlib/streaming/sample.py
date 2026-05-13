@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from watlowlib.protocol.base import ProtocolKind
+    from watlowlib.registry.units import Unit
 
 __all__ = ["Sample"]
 
@@ -52,10 +53,14 @@ class Sample:
         instance: 1-indexed loop / channel selector used for the read.
         value: The decoded scalar. ``None`` when the device reported
             the value as unavailable (sensor-fail, overload, ...).
-        unit: Display string for the value's unit, or ``None`` if the
-            registry doesn't carry per-parameter unit metadata. v1
-            leaves this ``None`` for every PM parameter — the registry
-            doesn't carry per-row units yet.
+        unit: Concrete :class:`Unit` from the Watlow polling path, a
+            free-form string for cross-vendor rows (Alicat's ``"psia"``,
+            ``"sccm"`` etc. via
+            ``examples/mixed_watlow_alicat_sqlite.py``), or ``None``
+            when the parameter has no unit (counts, IDs, time
+            constants). The Watlow recorder always populates a
+            :class:`Unit`; the ``str`` branch only fires for hand-built
+            cross-vendor samples.
         monotonic_ns: :func:`time.monotonic_ns` at the read site,
             roughly the midpoint of send/receive. Used for scheduling
             / drift analysis only — never displayed.
@@ -79,7 +84,7 @@ class Sample:
     parameter_id: int
     instance: int
     value: float | int | str | bool | None
-    unit: str | None
+    unit: Unit | str | None
     monotonic_ns: int
     requested_at: datetime
     received_at: datetime

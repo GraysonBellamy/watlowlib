@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from watlowlib._lock import maybe_acquire
 from watlowlib._logging import get_logger
 from watlowlib.errors import WatlowError
+from watlowlib.registry.units import UnitKind, resolve_unit
 from watlowlib.streaming.sample import Sample
 
 if TYPE_CHECKING:
@@ -70,6 +71,14 @@ async def poll_controller(
                     err,
                 )
                 continue
+            # Temperature parameters need the session's cached display
+            # unit (parameter 17050). Fetch once per parameter; the
+            # session caches across the whole batch and beyond.
+            if spec.unit_kind is UnitKind.TEMPERATURE:
+                display = await session.display_unit()
+            else:
+                display = None
+            unit = resolve_unit(spec.unit_kind, display)
             for instance in instances:
                 requested_at = datetime.now(UTC)
                 sent_ns = time.monotonic_ns()
@@ -98,7 +107,7 @@ async def poll_controller(
                         parameter_id=spec.parameter_id,
                         instance=instance,
                         value=entry.value,
-                        unit=None,
+                        unit=unit,
                         monotonic_ns=mono,
                         requested_at=requested_at,
                         received_at=received_at,

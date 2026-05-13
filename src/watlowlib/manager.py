@@ -120,6 +120,10 @@ class DeviceResult[T]:
 _WINDOWS_DEVICE_PREFIX = "\\\\.\\"
 
 
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
 def _canonical_port_key(port: str) -> str:
     r"""Collapse equivalent port names to a single key.
 
@@ -131,7 +135,7 @@ def _canonical_port_key(port: str) -> str:
     Windows: strips the ``\\.\`` device-namespace prefix and uppercases,
     so ``COM3`` / ``com3`` / ``\\.\COM3`` all match.
     """
-    if sys.platform == "win32":
+    if _is_windows():
         return port.removeprefix(_WINDOWS_DEVICE_PREFIX).upper()
     path = Path(port)
     return str(path.resolve(strict=False)) if path.exists() else port

@@ -1081,7 +1081,7 @@ type = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.13" },
     { name = "anymodbus", specifier = ">=0.1.1,<0.2" },
-    { name = "anyserial", specifier = ">=0.1,<0.2" },
+    { name = "anyserial", specifier = ">=0.1.2,<0.2" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30" },
     { name = "mkdocstrings-python", marker = "extra == 'docs'", specifier = ">=1.12" },
     { name = "pyarrow", marker = "extra == 'parquet'", specifier = ">=16" },

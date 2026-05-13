@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         Reading,
     )
     from watlowlib.devices.session import Session
+    from watlowlib.registry.units import Unit
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import SerialSettings
 
@@ -198,6 +199,27 @@ class SyncController:
             self._ctl.set_setpoint,
             value,
             instance=instance,
+            confirm=confirm,
+            timeout=timeout,
+        )
+
+    # ------------------------------------------------------------------ display unit
+
+    def read_display_units(self, *, timeout: float | None = None) -> Unit | None:
+        """Blocking :meth:`Controller.read_display_units`."""
+        return self._portal.call(self._ctl.read_display_units, timeout=timeout)
+
+    def set_display_units(
+        self,
+        unit: Unit | str,
+        *,
+        confirm: bool = False,
+        timeout: float | None = None,
+    ) -> Unit | None:
+        """Blocking :meth:`Controller.set_display_units`."""
+        return self._portal.call(
+            self._ctl.set_display_units,
+            unit,
             confirm=confirm,
             timeout=timeout,
         )

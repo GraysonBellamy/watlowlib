@@ -17,9 +17,7 @@ set.
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from watlowlib.commands.parameters import (
@@ -28,8 +26,8 @@ from watlowlib.commands.parameters import (
     ReadParameterRequest,
     WriteParameterRequest,
 )
+from watlowlib.devices._reading import reading_from_entry
 from watlowlib.devices.capability import Capability
-from watlowlib.devices.models import Reading
 from watlowlib.errors import (
     ErrorContext,
     WatlowConfigurationError,
@@ -39,6 +37,7 @@ from watlowlib.errors import (
 )
 
 if TYPE_CHECKING:
+    from watlowlib.devices.models import Reading
     from watlowlib.devices.session import Session
 
 __all__ = [
@@ -202,15 +201,7 @@ async def read_output(session: Session, *, instance: int = 1) -> Reading:
         READ_PARAMETER,
         ReadParameterRequest(_OUTPUT_PARAMETER, instance=instance),
     )
-    value = float(entry.value) if isinstance(entry.value, int | float) else None
-    return Reading(
-        value=value,
-        unit=None,
-        received_at=datetime.now(UTC),
-        monotonic_ns=time.monotonic_ns(),
-        raw=entry.raw,
-        protocol=session.protocol_kind,
-    )
+    return await reading_from_entry(session, entry)
 
 
 # --- Internals ------------------------------------------------------

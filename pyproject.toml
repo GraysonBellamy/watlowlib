@@ -52,7 +52,7 @@ classifiers = [
 ]
 dependencies = [
     "anyio>=4.13",
-    "anyserial>=0.1,<0.2",
+    "anyserial>=0.1.2,<0.2",
     "anymodbus>=0.1.1,<0.2",
 ]
 
@@ -316,6 +316,9 @@ follow_imports = "skip"
 include = ["src", "tests"]
 exclude = ["src/watlowlib/_version.py", "**/__pycache__"]
 pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["src"]
 typeCheckingMode = "strict"
 reportMissingTypeStubs = "warning"
 reportUnknownMemberType = "warning"

@@ -75,7 +75,10 @@ def _port_open_error_types() -> tuple[type[BaseException], ...]:
         import termios  # noqa: PLC0415 — platform-gated optional import
     except ImportError:  # pragma: no cover — Windows has no termios module
         return (OSError,)
-    return (OSError, termios.error)
+    termios_error: object = getattr(termios, "error", None)
+    if isinstance(termios_error, type) and issubclass(termios_error, BaseException):
+        return (OSError, termios_error)
+    return (OSError,)
 
 
 _PORT_OPEN_ERRORS: tuple[type[BaseException], ...] = _port_open_error_types()

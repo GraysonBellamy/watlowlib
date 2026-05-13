@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Protocol
 import anyio
 
 from watlowlib._logging import get_logger
+from watlowlib.registry.units import Unit
 from watlowlib.streaming.recorder import AcquisitionSummary
 
 if TYPE_CHECKING:
@@ -117,8 +118,10 @@ def sample_to_row(sample: Sample) -> dict[str, float | int | str | bool | None]:
     - ``value`` — decoded value, coerced to a sink-friendly scalar
       (bools become ``"true"`` / ``"false"`` strings so SQLite type
       inference doesn't pin the column to INTEGER for the run).
-    - ``unit`` — display string, or ``None`` when the registry doesn't
-      carry per-parameter unit metadata.
+    - ``unit`` — :class:`Unit`'s ``.value`` (``"C"`` / ``"F"`` / ``"%"``)
+      for Watlow rows, a free-form string for cross-vendor rows
+      (``"psia"``, ``"sccm"``, ...), or ``None`` when the parameter has
+      no unit.
     - ``requested_at`` / ``received_at`` / ``midpoint_at`` — ISO 8601
       strings.
     - ``latency_s`` — poll round-trip in seconds.
@@ -140,6 +143,7 @@ def sample_to_row(sample: Sample) -> dict[str, float | int | str | bool | None]:
         # raw_value is None — Sample.value's type rules out anything else.
         coerced = None
 
+    unit = sample.unit.value if isinstance(sample.unit, Unit) else sample.unit
     return {
         "device": sample.device,
         "address": sample.address,
@@ -148,7 +152,7 @@ def sample_to_row(sample: Sample) -> dict[str, float | int | str | bool | None]:
         "parameter_id": sample.parameter_id,
         "instance": sample.instance,
         "value": coerced,
-        "unit": sample.unit,
+        "unit": unit,
         "requested_at": sample.requested_at.isoformat(),
         "received_at": sample.received_at.isoformat(),
         "midpoint_at": sample.midpoint_at.isoformat(),

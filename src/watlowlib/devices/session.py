@@ -43,8 +43,10 @@ from watlowlib.errors import (
     WatlowNoSuchObjectError,
     WatlowProtocolError,
     WatlowProtocolUnsupportedError,
+    WatlowTransportError,
 )
 from watlowlib.protocol.base import ProtocolKind
+from watlowlib.registry.units import Unit, unit_from_display_code
 
 if TYPE_CHECKING:
     from watlowlib.commands.base import Command
@@ -79,6 +81,13 @@ class Session:
         self._address = address
         self._port = port
         self._availability: dict[str, Availability] = {}
+        # Lazy cache of the device's comms display unit (parameter 17050).
+        # ``_display_unit_loaded`` distinguishes "haven't asked yet" from
+        # "asked and got nothing" — once a session has seen a rejection,
+        # subsequent temperature reads return ``Reading.unit = None``
+        # without re-querying.
+        self._display_unit: Unit | None = None
+        self._display_unit_loaded: bool = False
 
     @property
     def protocol_kind(self) -> ProtocolKind:
@@ -301,6 +310,58 @@ class Session:
             elapsed,
         )
         return response
+
+    async def display_unit(self) -> Unit | None:
+        """Return the device's comms display unit (parameter 17050).
+
+        Reads the parameter on first call and caches the result for the
+        lifetime of the session. Returns ``None`` when the device
+        rejects the read or reports an unknown code; the cache
+        distinguishes "haven't asked yet" from "asked and got nothing"
+        so a rejection does not cost another wire turn-around on every
+        subsequent temperature reading.
+
+        Invalidated by :meth:`invalidate_display_unit` (called by
+        :meth:`Controller.set_display_units` after a successful write).
+        """
+        if self._display_unit_loaded:
+            return self._display_unit
+        self._display_unit = await self._fetch_display_unit()
+        self._display_unit_loaded = True
+        return self._display_unit
+
+    def invalidate_display_unit(self) -> None:
+        """Drop the cached display unit so the next read re-queries 17050."""
+        self._display_unit = None
+        self._display_unit_loaded = False
+
+    async def _fetch_display_unit(self) -> Unit | None:
+        r"""Read parameter 17050 and map the device code to :class:`Unit`.
+
+        Swallows protocol / transport errors to ``None`` — same
+        graceful-degrade policy as :meth:`Controller._safe_read_int`,
+        so a device that doesn't expose 17050 still produces
+        ``Reading``\\ s, just without a unit.
+        """
+        # Imported here to avoid a circular import: commands/parameters.py
+        # depends on devices/models.py which depends on registry/units.py;
+        # session.py is one step removed and pulls these in lazily.
+        from watlowlib.commands.parameters import (  # noqa: PLC0415
+            READ_PARAMETER,
+            ReadParameterRequest,
+        )
+
+        try:
+            entry = await self.execute(
+                READ_PARAMETER,
+                ReadParameterRequest("display_units", instance=1),
+            )
+        except (WatlowProtocolError, WatlowTransportError):
+            return None
+        value = entry.value
+        if not isinstance(value, int | float):
+            return None
+        return unit_from_display_code(int(value))
 
     def _error_context(
         self,
