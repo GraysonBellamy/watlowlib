@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from watlowlib.devices.controller import Controller
+    from watlowlib.registry.units import Unit
     from watlowlib.sinks.base import SampleSink
     from watlowlib.streaming.recorder import AcquisitionSummary, OverflowPolicy
     from watlowlib.streaming.sample import Sample
@@ -142,6 +143,7 @@ class SyncWatlowManager:
         address: int = 1,
         serial_settings: SerialSettings | None = None,
         family: ControllerFamily = ControllerFamily.UNKNOWN,
+        assert_wire_temperature_unit: Unit | str | None = None,
     ) -> SyncController:
         """Blocking :meth:`WatlowManager.add`.
 
@@ -159,6 +161,7 @@ class SyncWatlowManager:
             address=address,
             serial_settings=serial_settings,
             family=family,
+            assert_wire_temperature_unit=assert_wire_temperature_unit,
         )
         wrapped = wrap_controller(async_controller, self.portal)
         self._wrapped[name] = wrapped

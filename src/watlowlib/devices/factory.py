@@ -21,13 +21,14 @@ from watlowlib.protocol.base import ProtocolKind
 from watlowlib.protocol.client import make_protocol_client
 from watlowlib.registry.families import ControllerFamily
 from watlowlib.registry.parameters import PARAMETERS
+from watlowlib.registry.units import Unit, coerce_unit
 from watlowlib.transport.base import SerialSettings
 from watlowlib.transport.serial import SerialTransport
 
 if TYPE_CHECKING:
     from watlowlib.transport.base import Transport
 
-__all__ = ["open_controller", "open_device"]
+__all__ = ["coerce_wire_temperature_unit", "open_controller", "open_device"]
 
 
 async def open_device(
@@ -36,6 +37,7 @@ async def open_device(
     protocol: ProtocolKind = ProtocolKind.STDBUS,
     address: int = 1,
     serial_settings: SerialSettings | None = None,
+    assert_wire_temperature_unit: Unit | str | None = None,
 ) -> Controller:
     """Open a controller on a serial port.
 
@@ -56,6 +58,21 @@ async def open_device(
             detect uses the same framing for both probes — there is
             no baud sweeping in the open path (cross-cutting
             invariant 5).
+        assert_wire_temperature_unit: User-asserted scale of
+            temperature values on the wire. Sets
+            :class:`Reading.unit` / :class:`Sample.unit` for
+            temperature parameters. Accepts a :class:`Unit` or a
+            case-insensitive string alias (``"C"``, ``"F"``,
+            ``"celsius"``, ``"degF"``, ``"°C"``, ...).
+            :attr:`Unit.PERCENT` is rejected. ``None`` (the default)
+            means temperature readings carry ``unit=None``. The
+            library does **not** infer this from parameter 17050 —
+            on at least one PM3 firmware 17050 is a label-only
+            register and would silently mis-tag. Verify the actual
+            scale externally — the bundled
+            ``watlow-diag probe-unit`` CLI automates the comparison
+            against a known panel reading; see ``docs/devices.md``
+            §Units — before asserting it here.
 
     Returns:
         An *opened* :class:`Controller` when ``protocol=AUTO`` (the
@@ -66,6 +83,8 @@ async def open_device(
     Raises:
         WatlowConfigurationError: ``address`` is out of range or
             ``protocol`` is unsupported.
+        WatlowValidationError: ``assert_wire_temperature_unit`` is
+            :attr:`Unit.PERCENT` or an unrecognised alias.
         WatlowProtocolUnsupportedError: ``protocol=AUTO`` and both
             probes failed.
     """
@@ -74,6 +93,8 @@ async def open_device(
             f"unsupported protocol kind: {protocol!r}",
             context=ErrorContext(port=port),
         )
+
+    wire_unit = coerce_wire_temperature_unit(assert_wire_temperature_unit)
 
     settings = serial_settings or SerialSettings(port=port)
     if settings.port != port:
@@ -103,6 +124,7 @@ async def open_device(
             family=ControllerFamily.UNKNOWN,
             address=address,
             port=resolved.transport.label,
+            wire_temperature_unit=wire_unit,
         )
         return Controller(session, resolved.transport, serial_settings=settings)
 
@@ -122,6 +144,7 @@ async def open_device(
         protocol=protocol,
         address=address,
         serial_settings=settings,
+        wire_temperature_unit=wire_unit,
     )
 
 
@@ -132,12 +155,19 @@ async def open_controller(
     address: int,
     serial_settings: SerialSettings,
     family: ControllerFamily = ControllerFamily.UNKNOWN,
+    wire_temperature_unit: Unit | None = None,
 ) -> Controller:
     """Build a :class:`Controller` over an existing :class:`Transport`.
 
     Opens the transport if not already open. Tests use this to drive
     the facade through a :class:`watlowlib.transport.fake.FakeTransport`.
     Production code uses :func:`open_device`.
+
+    ``wire_temperature_unit`` is the already-coerced
+    :class:`watlowlib.registry.units.Unit` (or ``None``) that drives
+    :class:`Reading.unit` for temperature parameters. Test callers
+    pass it directly; :func:`open_device` derives it from its
+    ``assert_wire_temperature_unit`` kwarg.
     """
     if protocol is ProtocolKind.AUTO:
         raise WatlowConfigurationError(
@@ -154,5 +184,29 @@ async def open_controller(
         family=family,
         address=address,
         port=transport.label,
+        wire_temperature_unit=wire_temperature_unit,
     )
     return Controller(session, transport, serial_settings=serial_settings)
+
+
+def coerce_wire_temperature_unit(value: Unit | str | None) -> Unit | None:
+    """Normalise the ``assert_wire_temperature_unit`` kwarg.
+
+    Accepts a :class:`Unit`, a case-insensitive alias, or ``None``.
+    Rejects :attr:`Unit.PERCENT` pre-I/O — a temperature scale must
+    be °C or °F.
+    """
+    from watlowlib.errors import WatlowValidationError  # noqa: PLC0415 — cold path
+
+    if value is None:
+        return None
+    resolved = coerce_unit(value)
+    if resolved is Unit.PERCENT:
+        raise WatlowValidationError(
+            "assert_wire_temperature_unit accepts CELSIUS / FAHRENHEIT only; "
+            "PERCENT is not a temperature scale",
+        )
+    return resolved
+
+
+_coerce_wire_temperature_unit = coerce_wire_temperature_unit

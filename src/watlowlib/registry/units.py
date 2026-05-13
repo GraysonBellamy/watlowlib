@@ -2,19 +2,32 @@
 
 Two enums:
 
-- :class:`Unit` — the concrete display unit a value is reported in
-  (``°C`` / ``°F`` / ``%``). Attached to :class:`Reading.unit` and
-  :class:`Sample.unit`.
+- :class:`Unit` — the concrete unit a temperature/percent value is
+  reported in (``°C`` / ``°F`` / ``%``). Attached to
+  :class:`Reading.unit` and :class:`Sample.unit`.
 - :class:`UnitKind` — the structural unit *family* of a parameter as
   declared in the registry JSON (``temperature`` / ``percent`` /
   ``dimensionless`` / ``enumeration`` / ``string``). Used by
   :func:`resolve_unit` to compute the concrete :class:`Unit` for a
-  given device display-unit setting.
+  temperature parameter given the (separately-determined) wire scale.
 
-Watlow's PM has **two** display-unit registers (3005 panel, 17050
-comms); 17050 is the unit the device uses on the wire and is therefore
-the one we tag readings with. See ``docs/units-plan.md`` for the
-rationale and pitfalls.
+Watlow PM controllers expose **two** display-unit registers — 3005
+("Display - Units", front panel) and 17050 ("Communications - Display
+Units"). On at least one PM3 firmware (id 5678), **17050 is label-
+only**: writing it changes the enum reported when 17050 is read back
+but does not change the scale of values exchanged over comms. The
+internal storage unit (the scale temperatures actually travel in over
+the wire) is governed by something else — and on devices where it
+cannot be determined empirically, the library refuses to guess.
+
+Consequence for this module: :func:`resolve_unit` no longer assumes
+17050 is the wire scale. The caller (the session) supplies an
+explicit ``temperature_unit`` derived from the
+``assert_wire_temperature_unit`` user-assertion (or ``None`` when no
+assertion was made). ``Reading.unit = None`` is the honest answer for
+temperature reads when the wire scale is unknown.
+
+See ``docs/devices.md`` §Units for the user-facing contract.
 """
 
 from __future__ import annotations
@@ -121,7 +134,8 @@ def coerce_unit(value: object) -> Unit:
     can fail pre-I/O before any wire bytes go out.
 
     Raw integer device codes (15, 30) are **not** accepted — callers
-    who want the lower-level path use ``write_parameter("display_units", 30)``.
+    who want the lower-level path use
+    ``write_parameter("display_units", 30)``.
     """
     if isinstance(value, Unit):
         return value
@@ -138,18 +152,20 @@ def coerce_unit(value: object) -> Unit:
         ) from exc
 
 
-def resolve_unit(kind: UnitKind, display_unit: Unit | None) -> Unit | None:
+def resolve_unit(kind: UnitKind, temperature_unit: Unit | None) -> Unit | None:
     """Resolve a parameter's :class:`UnitKind` to a concrete :class:`Unit`.
 
-    - ``TEMPERATURE`` → the device's current display unit (may be
-      ``None`` if the device rejected the 17050 read).
+    - ``TEMPERATURE`` → ``temperature_unit`` (passes the caller's
+      asserted wire scale through, or ``None`` when none was asserted).
     - ``PERCENT`` → :attr:`Unit.PERCENT`.
     - Everything else → ``None``.
 
-    Pure mapping; no I/O.
+    Pure mapping; no I/O. The caller (typically
+    :class:`watlowlib.devices.session.Session`) is responsible for
+    determining the wire scale and passing it in.
     """
     if kind is UnitKind.TEMPERATURE:
-        return display_unit
+        return temperature_unit
     if kind is UnitKind.PERCENT:
         return Unit.PERCENT
     return None

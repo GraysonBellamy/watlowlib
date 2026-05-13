@@ -74,6 +74,7 @@ class Session:
         family: ControllerFamily,
         address: int,
         port: str,
+        wire_temperature_unit: Unit | None = None,
     ) -> None:
         self._client = client
         self._registry = registry
@@ -81,13 +82,24 @@ class Session:
         self._address = address
         self._port = port
         self._availability: dict[str, Availability] = {}
-        # Lazy cache of the device's comms display unit (parameter 17050).
-        # ``_display_unit_loaded`` distinguishes "haven't asked yet" from
-        # "asked and got nothing" — once a session has seen a rejection,
-        # subsequent temperature reads return ``Reading.unit = None``
-        # without re-querying.
-        self._display_unit: Unit | None = None
-        self._display_unit_loaded: bool = False
+        # User-asserted scale of temperature values on the wire. Sourced
+        # from ``open_device(assert_wire_temperature_unit=...)``. Drives
+        # :class:`Reading.unit` and :class:`Sample.unit` for temperature
+        # parameters; when ``None``, those tags stay ``None`` rather
+        # than guess. The library makes **no** attempt to derive this
+        # from parameter 17050 — on at least one PM3 firmware revision
+        # 17050 is a label-only register that does not govern the wire
+        # scale. See ``docs/devices.md`` §Units.
+        self._wire_temperature_unit: Unit | None = wire_temperature_unit
+        self._wire_temperature_unit_warned: bool = False
+        # Lazy cache of parameter 17050's reported value. Kept purely
+        # as an inspection helper exposed via
+        # :meth:`Controller.read_comms_unit_label` — **does not** feed
+        # :class:`Reading.unit`. ``_comms_unit_label_loaded`` distinguishes
+        # "haven't asked yet" from "asked and got nothing"; subsequent
+        # calls don't repeat the wire turn-around after a rejection.
+        self._comms_unit_label: Unit | None = None
+        self._comms_unit_label_loaded: bool = False
 
     @property
     def protocol_kind(self) -> ProtocolKind:
@@ -311,37 +323,67 @@ class Session:
         )
         return response
 
-    async def display_unit(self) -> Unit | None:
-        """Return the device's comms display unit (parameter 17050).
+    def wire_temperature_unit(self) -> Unit | None:
+        """Return the user-asserted scale of temperature values on the wire.
 
-        Reads the parameter on first call and caches the result for the
-        lifetime of the session. Returns ``None`` when the device
+        This is what :class:`Reading.unit` / :class:`Sample.unit` get
+        tagged with for temperature parameters. ``None`` when the user
+        did not pass ``assert_wire_temperature_unit=`` to
+        :func:`watlowlib.open_device`; in that case temperature
+        readings carry ``unit=None`` rather than guess.
+
+        Pure accessor — no I/O. Logs a one-shot WARN the first time
+        an asserted value is consumed so the user-assertion shows up
+        plainly in capture logs.
+        """
+        if self._wire_temperature_unit is not None and not self._wire_temperature_unit_warned:
+            _log.warning(
+                "trusting user-asserted wire temperature unit %s for port=%s "
+                "address=%s; not independently verified by the library "
+                "(parameter 17050 is label-only on at least one PM firmware)",
+                self._wire_temperature_unit.value,
+                self._port,
+                self._address,
+            )
+            self._wire_temperature_unit_warned = True
+        return self._wire_temperature_unit
+
+    async def comms_unit_label(self) -> Unit | None:
+        """Return the value parameter 17050 reports for this session.
+
+        Inspection helper, not a source of truth: on at least one PM3
+        firmware revision 17050 is a label-only register that does not
+        govern the wire scale. :class:`Reading.unit` is sourced from
+        :meth:`wire_temperature_unit` instead.
+
+        Reads the parameter on first call and caches the result for
+        the lifetime of the session. Returns ``None`` when the device
         rejects the read or reports an unknown code; the cache
         distinguishes "haven't asked yet" from "asked and got nothing"
-        so a rejection does not cost another wire turn-around on every
-        subsequent temperature reading.
+        so a rejection does not cost another wire turn-around.
 
-        Invalidated by :meth:`invalidate_display_unit` (called by
-        :meth:`Controller.set_display_units` after a successful write).
+        Invalidated by :meth:`invalidate_comms_unit_label` (called by
+        :meth:`Controller.set_comms_unit_label` after a successful
+        write).
         """
-        if self._display_unit_loaded:
-            return self._display_unit
-        self._display_unit = await self._fetch_display_unit()
-        self._display_unit_loaded = True
-        return self._display_unit
+        if self._comms_unit_label_loaded:
+            return self._comms_unit_label
+        self._comms_unit_label = await self._fetch_comms_unit_label()
+        self._comms_unit_label_loaded = True
+        return self._comms_unit_label
 
-    def invalidate_display_unit(self) -> None:
-        """Drop the cached display unit so the next read re-queries 17050."""
-        self._display_unit = None
-        self._display_unit_loaded = False
+    def invalidate_comms_unit_label(self) -> None:
+        """Drop the cached 17050 value so the next read re-queries the device."""
+        self._comms_unit_label = None
+        self._comms_unit_label_loaded = False
 
-    async def _fetch_display_unit(self) -> Unit | None:
+    async def _fetch_comms_unit_label(self) -> Unit | None:
         r"""Read parameter 17050 and map the device code to :class:`Unit`.
 
         Swallows protocol / transport errors to ``None`` — same
         graceful-degrade policy as :meth:`Controller._safe_read_int`,
-        so a device that doesn't expose 17050 still produces
-        ``Reading``\\ s, just without a unit.
+        so a device that doesn't expose 17050 still returns from this
+        helper, just with no label.
         """
         # Imported here to avoid a circular import: commands/parameters.py
         # depends on devices/models.py which depends on registry/units.py;

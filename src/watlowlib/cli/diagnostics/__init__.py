@@ -4,7 +4,7 @@ r"""Diagnostics / reverse-engineering tools.
 ``--i-understand-this-is-destructive``. Never invoked from normal
 discovery or open.
 
-Six subcommands under the ``watlow-diag`` namespace:
+Seven subcommands under the ``watlow-diag`` namespace:
 
 - ``snapshot`` — read-only walk of every supported registry parameter;
   capability-discovery aid. Output is a JSON / text bundle suitable
@@ -19,6 +19,11 @@ Six subcommands under the ``watlow-diag`` namespace:
 - ``detect-framing`` — read-only sweep of (protocol × baud × parity)
   combinations to recover the framing of a controller whose
   configuration has been lost (front panel broken, etc.).
+- ``probe-unit`` — read-only inference of the wire-side temperature
+  scale by comparing a known front-panel reading against the comms
+  readback. Emits a recommendation for the
+  ``open_device(assert_wire_temperature_unit=...)`` kwarg. See
+  ``docs/devices.md`` §Units for the rationale.
 
 Entry-point dispatcher::
 
@@ -29,6 +34,7 @@ Entry-point dispatcher::
     watlow-diag argfuzz PORT --parameter 7001 \\
         [--write --i-understand-this-is-destructive]
     watlow-diag detect-framing PORT [--address 1] [--json]
+    watlow-diag probe-unit PORT --panel-shows 50 --panel-unit C
 """
 
 from __future__ import annotations
@@ -43,7 +49,7 @@ from watlowlib.cli.diagnostics._gate import (
 __all__ = ["DESTRUCTIVE_FLAG", "main", "require_destructive_ack"]
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911 — one return per subcommand by design
     """``watlow-diag`` dispatcher entry point.
 
     Parses the leading subcommand token (``snapshot``, ``tap``, ...)
@@ -61,7 +67,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "subcommand",
-        choices=("snapshot", "tap", "stream", "sweep", "argfuzz", "detect-framing"),
+        choices=(
+            "snapshot",
+            "tap",
+            "stream",
+            "sweep",
+            "argfuzz",
+            "detect-framing",
+            "probe-unit",
+        ),
         help="Diagnostic subcommand to run.",
     )
     parser.add_argument(
@@ -96,4 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         from watlowlib.cli.diagnostics import detect_framing  # noqa: PLC0415
 
         return detect_framing.main(ns.rest)
+    if ns.subcommand == "probe-unit":
+        from watlowlib.cli.diagnostics import probe_unit  # noqa: PLC0415
+
+        return probe_unit.main(ns.rest)
     raise AssertionError(f"unreachable: argparse choices guard {ns.subcommand!r}")

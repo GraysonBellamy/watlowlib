@@ -71,14 +71,17 @@ async def poll_controller(
                     err,
                 )
                 continue
-            # Temperature parameters need the session's cached display
-            # unit (parameter 17050). Fetch once per parameter; the
-            # session caches across the whole batch and beyond.
+            # Temperature parameters get the user-asserted wire scale
+            # (set via ``open_device(assert_wire_temperature_unit=...)``)
+            # or ``None`` when no assertion was made. Pure accessor; no
+            # I/O. The library does not consult parameter 17050 — on at
+            # least one PM3 firmware it is label-only and would silently
+            # mis-tag values. See ``docs/devices.md`` §Units.
             if spec.unit_kind is UnitKind.TEMPERATURE:
-                display = await session.display_unit()
+                temperature_unit = session.wire_temperature_unit()
             else:
-                display = None
-            unit = resolve_unit(spec.unit_kind, display)
+                temperature_unit = None
+            unit = resolve_unit(spec.unit_kind, temperature_unit)
             for instance in instances:
                 requested_at = datetime.now(UTC)
                 sent_ns = time.monotonic_ns()

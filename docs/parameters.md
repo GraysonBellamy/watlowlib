@@ -132,7 +132,7 @@ documents the human meanings. Common ones:
 | `cool_algorithm`  | `62` Off, `63` PID, `71` On-Off |
 | `tc_type`         | `J`, `K`, `T`, `S`, `R`, `B`, `N`, `E`, `C` |
 | `units`           | `15` °C, `30` °F — parameter 3005, front-panel display |
-| `display_units`   | `15` °C, `30` °F — parameter 17050, comms display (the wire-side unit) |
+| `display_units`   | `15` °C, `30` °F — parameter 17050, comms display label. **Not** an authoritative source for the wire scale on every firmware; see [`docs/devices.md`](devices.md) §Units. |
 
 Reading an enumerated parameter returns the integer; the facade does
 not auto-decode to a label (so callers can write back round-trip safe

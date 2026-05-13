@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Changed (BREAKING)
+
+- **`Reading.unit` / `Sample.unit` for temperature parameters no
+  longer derive from parameter 17050.** On at least one PM3 firmware
+  revision (id 5678, verified on a PM3C1AJ-AAAAAAA), 17050
+  ("Communications - Display Units") is a **label-only** register:
+  writing it changes the enum the device reports for 17050, but
+  does not change the scale of values exchanged over comms. The
+  library previously tagged readings from 17050's value and
+  silently mis-tagged °F values as °C on this firmware. Default
+  behaviour is now `Reading.unit = None` for temperature reads — an
+  honest "I don't know" — unless the caller declares the wire scale
+  via the new `assert_wire_temperature_unit=` kwarg (see Added).
+  See `docs/devices.md` §Units for the new contract.
+- **API renames** (no deprecation shims):
+  - `Controller.read_display_units()` → `read_comms_unit_label()`
+  - `Controller.set_display_units()` → `set_comms_unit_label()`
+  - `Session.display_unit()` → `comms_unit_label()`
+  - `Session.invalidate_display_unit()` →
+    `invalidate_comms_unit_label()`
+  - Sync mirrors (`SyncController.read_display_units` etc.) renamed
+    in parity.
+
+  The new names make explicit what the register actually is: a
+  label-only inspection facade for parameter 17050. Writing it does
+  not change `Reading.unit`.
+- `watlowlib.registry.units.resolve_unit(kind, display_unit)`
+  parameter renamed to `temperature_unit` for clarity. Behaviour is
+  unchanged for the temperature branch.
+
+### Added
+
+- **`assert_wire_temperature_unit=`** kwarg on `open_device`,
+  `open_controller`, `WatlowManager.add`,
+  `SyncWatlowManager.add`, and `Watlow.open`. The user-supplied,
+  externally-verified scale of temperature values on the wire.
+  Drives `Reading.unit` / `Sample.unit` for all temperature
+  parameters in that session. Accepts a `Unit` or a
+  case-insensitive alias (`"C"`, `"F"`, `"celsius"`, `"degF"`,
+  `"°C"`, ...); `Unit.PERCENT` is rejected pre-I/O. `None` (the
+  default) leaves temperature tags as `None`. Logs a one-shot WARN
+  the first time an asserted value feeds a `Reading` so the
+  assertion appears plainly in capture logs.
+- **`watlow-diag probe-unit`** — read-only diagnostic that infers
+  the wire-side temperature scale by comparing a known
+  front-panel reading against the comms readback. Emits a
+  recommendation for the `assert_wire_temperature_unit=` kwarg.
+  Usage: `watlow-diag probe-unit PORT --panel-shows 50
+  --panel-unit C`. Supports `--json` for machine-readable output.
+- `Session.wire_temperature_unit()` — pure accessor used by the
+  reading / sample builders.
+
 ### Fixed
 
 - **Recorder lock starvation under command-heavy load.** The per-tick
@@ -21,7 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deadlocking. `WatlowManager.poll_many` likewise acquires the
   shared port lock once around all devices in the same port group.
 
-### Added
+### Performance
 
 - `AcquisitionSummary.tick_duration_ms_p50` and
   `AcquisitionSummary.tick_duration_ms_p99` — wall-clock per-tick
@@ -33,6 +87,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the session, the streaming poll loop, and the manager port-group
   loop to compose batched acquisition without a parallel `_locked`
   API surface.
+
+### Migration
+
+Downstream code that opened controllers and consumed
+`Reading.unit` / `Sample.unit` for temperature parameters must
+either:
+
+1. **Recommended:** run `watlow-diag probe-unit PORT --panel-shows
+   VALUE --panel-unit UNIT` against each SKU once to determine the
+   actual wire scale, then pass
+   `assert_wire_temperature_unit=Unit.FAHRENHEIT` (or
+   `Unit.CELSIUS`) to `open_device` from then on. Tags now reflect
+   the true scale.
+2. Accept `Reading.unit = None` and rely on a separately-tracked
+   wire-scale constant in downstream code. Safer than the old
+   behaviour but pushes unit handling to every consumer.
+
+Any code calling `read_display_units` / `set_display_units` must be
+renamed to `read_comms_unit_label` / `set_comms_unit_label`.
+Writing 17050 no longer affects `Reading.unit` on any firmware.
 
 ## [0.1.0] — initial alpha
 

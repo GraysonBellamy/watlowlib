@@ -203,22 +203,22 @@ class SyncController:
             timeout=timeout,
         )
 
-    # ------------------------------------------------------------------ display unit
+    # ------------------------------------------------------------------ comms unit label
 
-    def read_display_units(self, *, timeout: float | None = None) -> Unit | None:
-        """Blocking :meth:`Controller.read_display_units`."""
-        return self._portal.call(self._ctl.read_display_units, timeout=timeout)
+    def read_comms_unit_label(self, *, timeout: float | None = None) -> Unit | None:
+        """Blocking :meth:`Controller.read_comms_unit_label`."""
+        return self._portal.call(self._ctl.read_comms_unit_label, timeout=timeout)
 
-    def set_display_units(
+    def set_comms_unit_label(
         self,
         unit: Unit | str,
         *,
         confirm: bool = False,
         timeout: float | None = None,
     ) -> Unit | None:
-        """Blocking :meth:`Controller.set_display_units`."""
+        """Blocking :meth:`Controller.set_comms_unit_label`."""
         return self._portal.call(
-            self._ctl.set_display_units,
+            self._ctl.set_comms_unit_label,
             unit,
             confirm=confirm,
             timeout=timeout,
@@ -287,6 +287,7 @@ class Watlow:
         protocol: ProtocolKind | None = None,
         address: int = 1,
         serial_settings: SerialSettings | None = None,
+        assert_wire_temperature_unit: Unit | str | None = None,
         portal: SyncPortal | None = None,
     ) -> Generator[SyncController]:
         """Open a sync :class:`SyncController` scoped to a ``with`` block.
@@ -306,6 +307,7 @@ class Watlow:
                 protocol=effective_protocol,
                 address=address,
                 serial_settings=serial_settings,
+                assert_wire_temperature_unit=assert_wire_temperature_unit,
             )
             # ``open_device`` returns a controller that may or may not
             # already be open: AUTO returned by the detector is open;

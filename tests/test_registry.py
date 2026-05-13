@@ -183,13 +183,14 @@ def test_loader_rejects_unknown_unit_kind() -> None:
 
 
 # resolve_unit truth table — pure mapping, no I/O.
-def test_resolve_unit_temperature_takes_display_unit() -> None:
+def test_resolve_unit_temperature_passes_temperature_unit_through() -> None:
+    """``resolve_unit`` returns the caller's asserted temperature unit verbatim."""
     assert resolve_unit(UnitKind.TEMPERATURE, Unit.FAHRENHEIT) is Unit.FAHRENHEIT
     assert resolve_unit(UnitKind.TEMPERATURE, Unit.CELSIUS) is Unit.CELSIUS
 
 
 def test_resolve_unit_temperature_passes_none_through() -> None:
-    """When the device rejected 17050, temperature readings get ``unit=None``."""
+    """No asserted wire scale → temperature readings get ``unit=None``."""
     assert resolve_unit(UnitKind.TEMPERATURE, None) is None
 
 

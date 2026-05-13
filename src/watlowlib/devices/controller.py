@@ -232,56 +232,74 @@ class Controller:
         )
         return await reading_from_entry(self._session, entry)
 
-    # --- Display unit (typed facade for parameter 17050) ----------------
+    # --- Comms unit label (inspection facade for parameter 17050) -------
 
-    async def read_display_units(self, *, timeout: float | None = None) -> Unit | None:
-        """Read (and cache) the device's comms display unit.
+    async def read_comms_unit_label(self, *, timeout: float | None = None) -> Unit | None:
+        """Read (and cache) the value parameter 17050 reports.
 
-        Forces the lazy lookup of parameter 17050 (Communications -
-        Display Units), the unit Watlow applies to temperature values
-        sent over the wire. Returns ``None`` if the device doesn't
-        report a known code.
+        Inspection / diagnostics helper. **Does not** drive
+        :class:`Reading.unit`: on at least one PM3 firmware revision
+        17050 is a label-only register that changes the enum the
+        device reports for itself but does not affect the scale of
+        temperature values exchanged over comms.
+
+        To tell watlowlib what scale temperatures actually travel in
+        over the wire, pass ``assert_wire_temperature_unit=`` to
+        :func:`watlowlib.open_device`. That assertion is what feeds
+        :class:`Reading.unit`.
 
         Distinct from ``read_parameter("units")``, which targets
         parameter 3005 (front-panel display). The two can disagree on
-        a real device; we tag :class:`Reading.unit` from 17050 because
-        that's the unit on the wire.
-        """
-        del timeout  # display_unit() is cached + uses session defaults
-        return await self._session.display_unit()
+        a real device.
 
-    async def set_display_units(
+        Returns ``None`` if the device doesn't report a known code.
+        """
+        del timeout  # comms_unit_label() is cached + uses session defaults
+        return await self._session.comms_unit_label()
+
+    async def set_comms_unit_label(
         self,
         unit: Unit | str,
         *,
         confirm: bool = False,
         timeout: float | None = None,
     ) -> Unit | None:
-        """Set the device's comms display unit (parameter 17050).
+        """Set parameter 17050 ("Communications - Display Units").
 
         Accepts a :class:`Unit` or a case-insensitive string alias
         (``"C"`` / ``"F"`` / ``"celsius"`` / ``"fahrenheit"`` /
         ``"degC"`` / ``"degF"`` / ``"°C"`` / ``"°F"``).
-        :attr:`Unit.PERCENT` is rejected pre-I/O — the display-units
-        register is temperature-only.
+        :attr:`Unit.PERCENT` is rejected pre-I/O — the register is
+        temperature-only.
 
         Raw enumeration codes (15 / 30) are not accepted here. Callers
         who want the lower-level path use
         ``write_parameter("display_units", 30)``.
 
+        .. warning::
+
+            On at least one PM3 firmware revision this register is
+            **label-only**: writing it changes the enum the device
+            reports when 17050 is read back, but does not change the
+            scale of temperature values exchanged over comms. This
+            setter therefore does **not** affect
+            :class:`Reading.unit`. To tell watlowlib what scale
+            temperatures are actually on, pass
+            ``assert_wire_temperature_unit=`` to
+            :func:`watlowlib.open_device`.
+
         Persistent write (parameter 17050 is RWE); pass ``confirm=True``
         to acknowledge the EEPROM write. The session raises
         :class:`WatlowConfirmationRequiredError` pre-I/O if missing.
 
-        Returns the device-echoed unit after the write. ``None`` if
-        the device's echo decodes outside the known codes — should
-        not happen on a PM, but the read path is permissive.
+        Returns the device-echoed label after the write. ``None`` if
+        the device's echo decodes outside the known codes.
         """
         resolved = coerce_unit(unit)
         code = display_code_for_unit(resolved)
         if code is None:
             raise WatlowValidationError(
-                "set_display_units accepts CELSIUS / FAHRENHEIT only; "
+                "set_comms_unit_label accepts CELSIUS / FAHRENHEIT only; "
                 "PERCENT is not a valid display-unit code",
             )
         # PERSISTENT write — session enforces ``confirm=True`` pre-I/O.
@@ -291,8 +309,8 @@ class Controller:
             confirm=confirm,
             timeout=timeout,
         )
-        self._session.invalidate_display_unit()
-        return await self._session.display_unit()
+        self._session.invalidate_comms_unit_label()
+        return await self._session.comms_unit_label()
 
     # --- Streaming ------------------------------------------------------
 

@@ -142,45 +142,119 @@ async with await open_device("/dev/ttyUSB0", address=1) as ctl:
 single-loop SKUs default to `loops=1`; `Controller.read_pv()` is
 shorthand for `Controller.loop(1).read_pv()`.
 
-## Units (parameter 17050, not 3005)
+## Units
 
 Watlow PM controllers carry **two** display-unit registers:
 
-| ID    | Name                            | What it controls                                          |
-| ----- | ------------------------------- | --------------------------------------------------------- |
-| 3005  | Display - Units                 | Front-panel temperature scale (visible on the device).    |
-| 17050 | Communications - Display Units  | Unit applied to temperature values sent over comms.       |
+| ID    | Name                            | What it does                                                   |
+| ----- | ------------------------------- | -------------------------------------------------------------- |
+| 3005  | Display - Units                 | Front-panel temperature scale (visible on the device).         |
+| 17050 | Communications - Display Units  | A label register that *claims* to drive the comms wire scale. |
 
-`watlowlib` reads values over comms, so every `Reading.unit` is
-tagged from **17050**. The two registers can diverge on a real device:
-the front panel can read °F while the wire reports °C. If a value
-looks off, check both registers.
+Both registers are reachable through the parameter API, but **neither
+is a reliable source of truth for the unit of temperature values on
+the wire**. On at least one PM3 firmware revision (PM3C1AJ, firmware
+id 5678), 17050 is **label-only**: writing it changes the enum the
+device reports when 17050 is read back, but does not affect the scale
+of temperature values exchanged over comms. The internal storage unit
+on that device is °F regardless of what either register says; verified
+empirically by writing a known setpoint and comparing the comms
+readback to the front-panel display.
 
-The session reads 17050 once, lazily, on the first temperature read,
-and caches the result. The cache is invalidated by
-`set_display_units`; otherwise it lives for the session's lifetime.
+`watlowlib` therefore **does not** infer `Reading.unit` from either
+register. The default is `unit=None` for temperature reads — an
+honest "I don't know" rather than a confident lie. To get a
+meaningful tag, verify the wire scale externally (the bundled
+`watlow-diag probe-unit` diagnostic does this — see
+[Diagnosing the wire scale](#diagnosing-the-wire-scale-watlow-diag-probe-unit)
+below) and then declare it at open time:
 
 ```python
-from watlowlib import Unit
+from watlowlib import Unit, open_device
 
-async with await open_device("/dev/ttyUSB0", address=1) as ctl:
+async with await open_device(
+    "/dev/ttyUSB0",
+    address=1,
+    assert_wire_temperature_unit=Unit.FAHRENHEIT,  # externally verified
+) as ctl:
     pv = await ctl.read_pv()
-    assert pv.unit is Unit.FAHRENHEIT  # if the device is in °F
-
-    # Read the cached unit explicitly.
-    current = await ctl.read_display_units()  # Unit | None
-
-    # Flip the comms unit (RWE; persists across power cycles).
-    await ctl.set_display_units(Unit.CELSIUS, confirm=True)
-
-    # Front-panel register stays reachable through the raw parameter API.
-    panel = await ctl.read_parameter("units")  # parameter 3005
+    assert pv.unit is Unit.FAHRENHEIT  # tag matches value scale
 ```
 
-`set_display_units` accepts a `Unit` or a case-insensitive alias
+The assertion is propagated to every `Reading` and `Sample` produced
+by the session. Without it, temperature tags stay `None` — the
+`Reading.value` is still the raw number off the wire; you just have
+to know what scale it's in yourself.
+
+### Inspection facade for parameter 17050
+
+For diagnostics, the value of 17050 is reachable through a dedicated
+inspection facade. It does **not** feed `Reading.unit`:
+
+```python
+# Read the cached label (one wire turn-around, then cached).
+label = await ctl.read_comms_unit_label()  # Unit | None
+
+# Flip the label (RWE; persists across power cycles).
+await ctl.set_comms_unit_label(Unit.CELSIUS, confirm=True)
+```
+
+`set_comms_unit_label` accepts a `Unit` or a case-insensitive alias
 (`"C"`, `"F"`, `"celsius"`, `"degF"`, `"°C"`). Raw device codes (15
 for Celsius, 30 for Fahrenheit) belong on the lower-level
-`write_parameter("display_units", code)` path.
+`write_parameter("display_units", code)` path. Note that writing
+17050 has no documented effect on the wire scale on this firmware —
+it only changes what the device reports back when 17050 is read.
+
+### Diagnosing the wire scale (`watlow-diag probe-unit`)
+
+`watlow-diag probe-unit` is a read-only diagnostic that infers the
+wire scale by comparing a known front-panel reading against the
+comms readback. Read-only by construction: it never writes anything
+to the device.
+
+Procedure:
+
+1. Look at the front panel and note the **value** and **unit** of
+   the parameter you'll compare against (default: setpoint). E.g.
+   the panel shows `SP = 50` with the °C indicator lit.
+2. Run:
+
+   ```sh
+   watlow-diag probe-unit COM6 --panel-shows 50 --panel-unit C
+   ```
+
+3. The probe reads the same parameter over comms and reports which
+   scale matches. Sample output:
+
+   ```text
+   Reference comparison:
+     panel shows : 50.0 C
+     comms reads : 122.0 (setpoint instance=1)
+
+   Inference: fahrenheit
+     panel-as-°C = 50.0, delta vs comms = 72.0
+     panel-as-°F = 122.0, delta vs comms = 0.0
+
+     → open_device(..., assert_wire_temperature_unit=Unit.FAHRENHEIT)
+   ```
+
+4. Take the recommended `assert_wire_temperature_unit=` value into
+   your `open_device` call. From then on, `Reading.unit` and
+   `Sample.unit` will reflect that wire scale.
+
+Useful flags:
+
+- `--parameter setpoint|process_value|...` — choose which temperature
+  parameter to compare. Setpoint is usually the easiest (you set it
+  yourself on the panel; PV drifts under control).
+- `--epsilon 0.2` — match tolerance. Bump up if your panel rounds to
+  whole degrees.
+- `--json` — emit the full report as JSON for downstream tooling.
+
+The diagnostic is one-shot: hardware behaviour for a given SKU +
+firmware doesn't change between runs, so the recommended kwarg can
+be hard-coded once and reused.
 
 ## Discovery
 

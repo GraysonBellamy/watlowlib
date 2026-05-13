@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from typing import Self
 
     from watlowlib.devices.models import Reading
+    from watlowlib.registry.units import Unit
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import Transport
 
@@ -263,6 +264,7 @@ class WatlowManager:
         address: int = 1,
         serial_settings: SerialSettings | None = None,
         family: ControllerFamily = ControllerFamily.UNKNOWN,
+        assert_wire_temperature_unit: Unit | str | None = None,
     ) -> Controller:
         """Register and open a controller under ``name``.
 
@@ -296,6 +298,14 @@ class WatlowManager:
                 :attr:`ControllerFamily.UNKNOWN`; the session uses this
                 for capability priors and is updated by ``identify()``
                 on the returned controller.
+            assert_wire_temperature_unit: Same semantics as
+                :func:`watlowlib.open_device` —
+                :class:`Reading.unit` / :class:`Sample.unit` for
+                temperature parameters get this value. ``None``
+                means temperature readings carry ``unit=None``.
+                Ignored when ``source`` is a pre-built
+                :class:`Controller` (which already carries its own
+                assertion from the open call).
 
         Returns:
             The opened :class:`Controller`.
@@ -320,12 +330,17 @@ class WatlowManager:
                     "sources; pre-built Transport / Controller carry their own settings",
                 )
 
+            from watlowlib.devices.factory import coerce_wire_temperature_unit  # noqa: PLC0415
+
+            wire_unit = coerce_wire_temperature_unit(assert_wire_temperature_unit)
+
             port_key, port_entry, controller = await self._resolve_source(
                 source,
                 protocol=protocol,
                 address=address,
                 serial_settings=serial_settings,
                 family=family,
+                wire_temperature_unit=wire_unit,
             )
 
             self._devices[name] = _DeviceEntry(
@@ -583,6 +598,7 @@ class WatlowManager:
         address: int,
         serial_settings: SerialSettings | None,
         family: ControllerFamily,
+        wire_temperature_unit: Unit | None,
     ) -> tuple[str | None, _PortEntry | None, Controller]:
         """Map ``source`` to ``(port_key, port_entry, controller)``."""
         if isinstance(source, Controller):
@@ -612,6 +628,7 @@ class WatlowManager:
                 address=address,
                 serial_settings=serial_settings if isinstance(source, str) else None,
                 family=family,
+                wire_temperature_unit=wire_temperature_unit,
             )
         except BaseException:
             # Cleanup must never replace the original exception (which
@@ -676,6 +693,7 @@ class WatlowManager:
         address: int,
         serial_settings: SerialSettings | None,
         family: ControllerFamily,
+        wire_temperature_unit: Unit | None,
     ) -> Controller:
         """Build a :class:`Controller` against ``port_entry``'s shared client.
 
@@ -717,6 +735,7 @@ class WatlowManager:
             family=family,
             address=address,
             port=transport.label,
+            wire_temperature_unit=wire_temperature_unit,
         )
         return Controller(session, transport, serial_settings=settings)
 
