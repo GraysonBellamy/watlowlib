@@ -26,7 +26,7 @@ __all__ = [
     "AlarmState",
     "DeviceHealth",
     "DeviceInfo",
-    "DiscoveryResult",
+    "FindResult",
     "LoopState",
     "ParameterEntry",
     "PartNumber",
@@ -172,12 +172,28 @@ class DeviceInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class DiscoveryResult:
-    """One row from the discovery sweep."""
+class FindResult:
+    """One probe attempt's outcome from :func:`find_devices`.
+
+    Mirrors the alicat / sartorius ecosystem shape: a flat
+    :attr:`baudrate` and an explicit :attr:`ok` flag so GUI Discover
+    dialogs and ``capa``-style adapters can filter responsive vs
+    silent rows on a single attribute.
+
+    A populated :attr:`info` carries the full
+    :class:`Controller.identify` result, including
+    :attr:`DeviceInfo.health` and (when the scan queried it)
+    :attr:`DeviceInfo.configured_protocol`.
+    """
 
     port: str
-    serial_settings: SerialSettings
     address: int
-    protocol: ProtocolKind | None
-    info: DeviceInfo | None
-    error: object | None  # WatlowError; typed as object to avoid the import cycle
+    baudrate: int
+    protocol: ProtocolKind
+    ok: bool
+    info: DeviceInfo | None = None
+    # ``WatlowError``; typed as object to avoid the import cycle with
+    # :mod:`watlowlib.errors`. Callers can ``isinstance`` against the
+    # concrete subclass when they need to distinguish "port wouldn't
+    # open" from "no reply at this address".
+    error: object | None = None

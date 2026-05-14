@@ -1,14 +1,20 @@
-"""``watlow-discover`` — sweep a port for Watlow controllers.
+"""``watlow-discover`` — scan local serial ports for Watlow controllers.
 
-Walks the configured address range on Standard Bus (MAC ``0x10..0x1F``
-→ addresses ``1..16``) and / or Modbus RTU (slave ``1..N``), running
-the same probe ``identify()`` uses against each candidate. Each result
-is one :class:`watlowlib.devices.models.DiscoveryResult` row.
+Thin wrapper over :func:`watlowlib.find_devices`. The CLI iterates the
+cartesian product of ``ports × baudrates × protocols × addresses`` and
+prints one row per probe attempt.
 
-Sweeping is opt-in for everything past the conservative defaults — the
-full Modbus address space is 1..247 but a single segment rarely has
-more than a handful of devices, and a 247-slot sweep takes minutes at
-the per-probe budget.
+With no flags the CLI runs the default scan: every visible serial
+port (via ``anyserial.list_serial_ports``), bauds ``38400 / 19200 /
+9600``, both protocols (Standard Bus and Modbus RTU), address ``1``
+only. That matches what a GUI Discover dialog wants — fast, narrow,
+"is anything plugged into this rig" — and lands a typical four-port
+sweep in under 15 seconds.
+
+For deeper sweeps (address ranges, custom bauds, a specific port) pass
+the matching flags; the parser accepts repeatable ``--port`` /
+``--baud`` flags and range / list specs like ``--addresses 1-16`` or
+``--addresses 1,2,5``.
 """
 
 from __future__ import annotations
@@ -19,40 +25,52 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import anyio
-from anyserial import Parity
 
 from watlowlib.devices.discovery import (
-    DEFAULT_MODBUS_RANGE,
-    DEFAULT_STDBUS_RANGE,
-    sweep_modbus,
-    sweep_stdbus,
+    DEFAULT_DISCOVERY_ADDRESSES,
+    DEFAULT_DISCOVERY_BAUDRATES,
+    find_devices,
 )
 from watlowlib.errors import WatlowError
 from watlowlib.protocol.base import ProtocolKind
-from watlowlib.transport.base import SerialSettings
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from watlowlib.devices.models import DiscoveryResult
+    from watlowlib.devices.models import FindResult
 
 __all__ = ["build_parser", "main", "parse_addresses"]
 
-# Std Bus factory baud (the EZ-ZONE PM ships at 38400 8-N-1 on Std Bus).
-_DEFAULT_BAUD = 38400
+
+_PROTOCOL_CHOICES: dict[str, tuple[ProtocolKind, ...]] = {
+    "stdbus": (ProtocolKind.STDBUS,),
+    "modbus_rtu": (ProtocolKind.MODBUS_RTU,),
+    "both": (ProtocolKind.STDBUS, ProtocolKind.MODBUS_RTU),
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="watlow-discover",
-        description="Sweep a serial port for Watlow controllers (Std Bus and/or Modbus RTU).",
+        description=(
+            "Scan local serial ports for Watlow controllers (Std Bus and/or "
+            "Modbus RTU). With no flags, scans every visible port at "
+            "38400/19200/9600 baud, both protocols, address 1."
+        ),
     )
-    parser.add_argument("--port", required=True, help="Serial-port path (e.g. /dev/ttyUSB0).")
+    parser.add_argument(
+        "--port",
+        action="append",
+        default=[],
+        help=(
+            "Serial-port path. Repeatable. Omit to scan every port the OS exposes via anyserial."
+        ),
+    )
     parser.add_argument(
         "--protocol",
-        choices=("stdbus", "modbus_rtu", "both"),
-        default="stdbus",
-        help="Which protocol to sweep (default: stdbus).",
+        choices=tuple(_PROTOCOL_CHOICES),
+        default="both",
+        help="Which protocol(s) to probe (default: both).",
     )
     parser.add_argument(
         "--addresses",
@@ -60,7 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help=(
             "Address range like '1-16' or '1,2,5,10'. Repeatable. "
-            "Defaults to 1-16 for both protocols."
+            "Defaults to address 1 only — pass an explicit range for "
+            "multi-drop buses."
         ),
     )
     parser.add_argument(
@@ -68,12 +87,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         action="append",
         default=[],
-        help="Baud rate. Repeatable to try multiple bauds (default: 38400).",
+        help=("Baud rate. Repeatable. Defaults to 38400 / 19200 / 9600."),
     )
     parser.add_argument(
-        "--parity",
-        default=None,
-        help="Parity (none/even/odd). Default: protocol-specific.",
+        "--probe-timeout",
+        type=float,
+        default=0.5,
+        help=(
+            "Per-probe budget in seconds (default: 0.5). Caps the "
+            "identify() call so silent buses bail fast."
+        ),
     )
     parser.add_argument(
         "--format",
@@ -81,25 +104,46 @@ def build_parser() -> argparse.ArgumentParser:
         default="text",
         help="Output format (default: text).",
     )
+    parser.add_argument(
+        "--responsive-only",
+        action="store_true",
+        help="Suppress silent / errored rows in the output.",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
     try:
-        addresses = parse_addresses(args.addresses) if args.addresses else None
+        addresses = (
+            parse_addresses(args.addresses) if args.addresses else DEFAULT_DISCOVERY_ADDRESSES
+        )
     except ValueError as exc:
         parser.error(str(exc))
 
-    bauds: list[int] = list(args.baud) or [_DEFAULT_BAUD]
-    rows: list[DiscoveryResult] = []
+    bauds: tuple[int, ...] = tuple(args.baud) if args.baud else DEFAULT_DISCOVERY_BAUDRATES
+    protocols = _PROTOCOL_CHOICES[args.protocol]
+    ports: list[str] | None = args.port or None
+
+    async def _scan() -> list[FindResult]:
+        return await find_devices(
+            ports=ports,
+            addresses=addresses,
+            baudrates=bauds,
+            protocols=protocols,
+            per_probe_timeout_s=args.probe_timeout,
+        )
+
     try:
-        for baud in bauds:
-            rows.extend(anyio.run(_sweep, args, baud, addresses))
+        rows = anyio.run(_scan)
     except WatlowError as exc:
         print(f"watlow-discover: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+
+    if args.responsive_only:
+        rows = [r for r in rows if r.ok]
 
     if args.format == "json":
         print(json.dumps([_row_to_dict(r) for r in rows], indent=2, default=_json_default))
@@ -109,49 +153,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-async def _sweep(
-    args: argparse.Namespace,
-    baud: int,
-    addresses: tuple[int, ...] | None,
-) -> list[DiscoveryResult]:
-    rows: list[DiscoveryResult] = []
-    explicit_baud = baud != _DEFAULT_BAUD or args.baud
-    explicit_parity = args.parity is not None
-    if args.protocol in ("stdbus", "both"):
-        settings = _settings_for_protocol(
-            args.port,
-            ProtocolKind.STDBUS,
-            baud=baud,
-            parity=args.parity,
-            explicit_baud=bool(explicit_baud),
-            explicit_parity=explicit_parity,
-        )
-        ranges = addresses if addresses is not None else DEFAULT_STDBUS_RANGE
-        rows.extend(
-            [r async for r in sweep_stdbus(args.port, addresses=ranges, serial_settings=settings)],
-        )
-    if args.protocol in ("modbus_rtu", "both"):
-        settings = _settings_for_protocol(
-            args.port,
-            ProtocolKind.MODBUS_RTU,
-            baud=baud,
-            parity=args.parity,
-            explicit_baud=bool(explicit_baud),
-            explicit_parity=explicit_parity,
-        )
-        ranges = addresses if addresses is not None else DEFAULT_MODBUS_RANGE
-        rows.extend(
-            [r async for r in sweep_modbus(args.port, addresses=ranges, serial_settings=settings)],
-        )
-    return rows
-
-
 def parse_addresses(specs: list[str]) -> tuple[int, ...]:
     """Parse one or more ``--addresses`` specs into a flat tuple.
 
     Each spec is either a single integer (``5``), a comma-separated list
     (``1,2,5,10``), or an inclusive range (``1-16``). Specs are merged
-    in argument order with duplicates preserved (the underlying sweep
+    in argument order with duplicates preserved (the underlying scan
     is idempotent).
     """
     out: list[int] = []
@@ -177,34 +184,10 @@ def parse_addresses(specs: list[str]) -> tuple[int, ...]:
     return tuple(out)
 
 
-def _settings_for_protocol(
-    port: str,
-    protocol: ProtocolKind,
-    *,
-    baud: int,
-    parity: str | None,
-    explicit_baud: bool,
-    explicit_parity: bool,
-) -> SerialSettings:
-    """Build :class:`SerialSettings` honouring the protocol's factory framing.
-
-    When the user did not pass ``--baud`` / ``--parity`` explicitly,
-    fall back to the target protocol's factory framing (38400 8-N-1
-    for Std Bus, 9600 8-E-1 for Modbus RTU). Without this, a
-    ``--protocol both`` sweep would probe Modbus PMs at the Std Bus
-    factory framing and miss every Modbus device on the bus.
-    """
-    factory = SerialSettings.factory_for(protocol, port=port)
-    resolved_baud = baud if explicit_baud else factory.baudrate
-    resolved_parity = (
-        Parity(parity.lower()) if (parity is not None and explicit_parity) else factory.parity
-    )
-    return SerialSettings(port=port, baudrate=resolved_baud, parity=resolved_parity)
-
-
-def _row_to_dict(row: DiscoveryResult) -> dict[str, Any]:
+def _row_to_dict(row: FindResult) -> dict[str, Any]:
     info_dict: dict[str, Any] | None = None
     if row.info is not None:
+        configured = row.info.configured_protocol
         info_dict = {
             "part_number": row.info.part_number.raw,
             "family": row.info.family.value,
@@ -213,29 +196,32 @@ def _row_to_dict(row: DiscoveryResult) -> dict[str, Any]:
             "serial_number": row.info.serial_number,
             "loops": row.info.loops,
             "capabilities": row.info.capabilities.value,
+            "health": row.info.health.value,
+            "configured_protocol": configured.value if configured is not None else None,
         }
     return {
         "port": row.port,
         "address": row.address,
-        "protocol": row.protocol.value if row.protocol is not None else None,
-        "baudrate": row.serial_settings.baudrate,
-        "parity": row.serial_settings.parity.value,
+        "baudrate": row.baudrate,
+        "protocol": row.protocol.value,
+        "ok": row.ok,
         "info": info_dict,
         "error": str(row.error) if row.error is not None else None,
     }
 
 
-def _format_row(row: DiscoveryResult) -> str:
-    proto = row.protocol.value if row.protocol is not None else "?"
+def _format_row(row: FindResult) -> str:
+    proto = row.protocol.value
     if row.info is not None:
         return (
-            f"  ✓ {proto:<11} addr={row.address:<3} "
-            f"baud={row.serial_settings.baudrate:<6} "
+            f"  ✓ {row.port:<14} {proto:<11} addr={row.address:<3} "
+            f"baud={row.baudrate:<6} "
             f"part={row.info.part_number.raw or '-':<16} "
-            f"family={row.info.family.value}"
+            f"fw={row.info.firmware_id} hw={row.info.hardware_id} "
+            f"health={row.info.health.value}"
         )
     error = type(row.error).__name__ if row.error is not None else "no-reply"
-    return f"  · {proto:<11} addr={row.address:<3} baud={row.serial_settings.baudrate:<6} {error}"
+    return f"  · {row.port:<14} {proto:<11} addr={row.address:<3} baud={row.baudrate:<6} {error}"
 
 
 def _json_default(obj: object) -> object:

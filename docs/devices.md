@@ -258,24 +258,35 @@ be hard-coded once and reused.
 
 ## Discovery
 
-[`sweep_stdbus(port)`](../src/watlowlib/devices/discovery.py) walks
-Standard Bus addresses 1–16 on a port; `sweep_modbus(port, range)`
-walks a Modbus slave range. Both return one
-[`DiscoveryResult`](api/devices.md) per probed address regardless of
-outcome.
+[`find_devices()`](../src/watlowlib/devices/discovery.py) probes the
+cartesian product of `ports × baudrates × protocols × addresses` and
+returns one [`FindResult`](api/devices.md) per probe attempt. The
+default scan is narrow — every visible serial port (via
+`anyserial.list_serial_ports`), bauds `38400 / 19200 / 9600`, both
+Watlow protocols, address `1` only — so a GUI Discover dialog can ask
+"is anything plugged in?" in under 15 seconds on a four-port rig.
 
 ```python
-from watlowlib import sweep_stdbus
+from watlowlib import find_devices
 
-async with anyio.from_thread.start_blocking_portal() as _:
-    rows = await sweep_stdbus("/dev/ttyUSB0")
-    for row in rows:
-        if row.protocol is not None:
-            print(row.address, row.info.part_number.raw)
+rows = await find_devices()                # scan all ports, defaults
+rows = await find_devices(ports=["/dev/ttyUSB0"])
+rows = await find_devices(addresses=range(1, 17))  # multi-drop sweep
+
+for row in rows:
+    if row.ok:
+        print(row.port, row.baudrate, row.protocol.value,
+              row.address, row.info.part_number.raw)
 ```
 
+A row's `ok` field is the single attribute callers filter on:
+populated `info` and `error is None` ⇔ `ok is True`. Silent /
+absent addresses surface as `ok=False` rows carrying a typed
+`WatlowError` so callers can distinguish "port wouldn't open" from
+"no reply at this address".
+
 The [`watlow-discover`](troubleshooting.md#watlow-discover) CLI wraps
-both sweeps with a JSON / table renderer.
+`find_devices()` with a JSON / table renderer.
 
 ## See also
 

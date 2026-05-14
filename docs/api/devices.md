@@ -1,10 +1,10 @@
 # `watlowlib.devices`
 
 The `Controller` facade, `Session`, typed dataclasses (`Reading`,
-`DeviceInfo`, `PartNumber`, `AlarmState`, `LoopState`,
-`DiscoveryResult`, …), `ControllerFamily`, `Capability`, `SafetyTier`,
-`Availability`, `open_device`, `open_controller`, and discovery
-helpers. See [Controllers](../devices.md).
+`DeviceInfo`, `PartNumber`, `AlarmState`, `LoopState`, `FindResult`,
+…), `ControllerFamily`, `Capability`, `SafetyTier`, `Availability`,
+`open_device`, `open_controller`, and `find_devices`. See
+[Controllers](../devices.md).
 
 ## Public surface
 

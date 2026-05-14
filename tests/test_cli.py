@@ -154,6 +154,9 @@ def test_discover_help_lists_protocols(capsys: pytest.CaptureFixture[str]) -> No
     out = capsys.readouterr().out
     assert "stdbus" in out
     assert "modbus_rtu" in out
+    # Ports are optional in the new CLI (omit → scan all via anyserial).
+    assert "--port" in out
+    assert "--baud" in out
 
 
 # --- watlow-raw -----------------------------------------------------

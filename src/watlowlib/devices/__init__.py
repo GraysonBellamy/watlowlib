@@ -10,14 +10,19 @@ from __future__ import annotations
 
 from watlowlib.devices.capability import Availability, Capability, SafetyTier
 from watlowlib.devices.controller import Controller
-from watlowlib.devices.discovery import sweep_modbus, sweep_stdbus
+from watlowlib.devices.discovery import (
+    DEFAULT_DISCOVERY_ADDRESSES,
+    DEFAULT_DISCOVERY_BAUDRATES,
+    DEFAULT_DISCOVERY_PROTOCOLS,
+    find_devices,
+)
 from watlowlib.devices.factory import open_controller, open_device
 from watlowlib.devices.kind import ControllerFamily, classify_family
 from watlowlib.devices.loop import ControllerLoop
 from watlowlib.devices.models import (
     AlarmState,
     DeviceInfo,
-    DiscoveryResult,
+    FindResult,
     LoopState,
     ParameterEntry,
     PartNumber,
@@ -26,6 +31,9 @@ from watlowlib.devices.models import (
 from watlowlib.devices.session import Session
 
 __all__ = [
+    "DEFAULT_DISCOVERY_ADDRESSES",
+    "DEFAULT_DISCOVERY_BAUDRATES",
+    "DEFAULT_DISCOVERY_PROTOCOLS",
     "AlarmState",
     "Availability",
     "Capability",
@@ -33,7 +41,7 @@ __all__ = [
     "ControllerFamily",
     "ControllerLoop",
     "DeviceInfo",
-    "DiscoveryResult",
+    "FindResult",
     "LoopState",
     "ParameterEntry",
     "PartNumber",
@@ -41,8 +49,7 @@ __all__ = [
     "SafetyTier",
     "Session",
     "classify_family",
+    "find_devices",
     "open_controller",
     "open_device",
-    "sweep_modbus",
-    "sweep_stdbus",
 ]

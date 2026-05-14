@@ -53,14 +53,18 @@ flip, not separate connectors.
 ## `watlow-discover`
 
 ```bash
-watlow-discover --port /dev/ttyUSB0 --protocol stdbus --baud 38400
-watlow-discover --port /dev/ttyUSB0 --protocol modbus_rtu --baud 9600 --addresses 1-16
+watlow-discover                                                # scan all ports, defaults
+watlow-discover --port /dev/ttyUSB0                            # one port, defaults
+watlow-discover --port /dev/ttyUSB0 --addresses 1-16           # multi-drop sweep
+watlow-discover --port /dev/ttyUSB0 --protocol modbus_rtu --baud 9600
 ```
 
-Probes a port across address ranges and prints the
-[`DiscoveryResult`](api/devices.md) for each address. Like
-`open_device(protocol=AUTO)`, discovery is conservative — never sweeps
-baud or parity.
+Probes the cartesian product of ports × bauds × protocols × addresses
+and prints one [`FindResult`](api/devices.md) per probe attempt. With
+no `--port` flag the CLI enumerates every visible serial port via
+`anyserial`; defaults hit address `1` at `38400 / 19200 / 9600` on
+both protocols, so a typical four-port rig is scanned in under 15
+seconds. Pass `--responsive-only` to suppress silent rows.
 
 If `watlow-discover` finds nothing:
 

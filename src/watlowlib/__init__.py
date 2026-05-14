@@ -21,6 +21,9 @@ See ``docs/design.md`` for the architectural design.
 from __future__ import annotations
 
 from watlowlib.devices import (
+    DEFAULT_DISCOVERY_ADDRESSES,
+    DEFAULT_DISCOVERY_BAUDRATES,
+    DEFAULT_DISCOVERY_PROTOCOLS,
     AlarmState,
     Availability,
     Capability,
@@ -28,7 +31,7 @@ from watlowlib.devices import (
     ControllerFamily,
     ControllerLoop,
     DeviceInfo,
-    DiscoveryResult,
+    FindResult,
     LoopState,
     ParameterEntry,
     PartNumber,
@@ -36,10 +39,9 @@ from watlowlib.devices import (
     SafetyTier,
     Session,
     classify_family,
+    find_devices,
     open_controller,
     open_device,
-    sweep_modbus,
-    sweep_stdbus,
 )
 from watlowlib.errors import (
     ErrorContext,
@@ -109,6 +111,9 @@ from watlowlib.transport import (
 from watlowlib.version import __version__
 
 __all__ = [
+    "DEFAULT_DISCOVERY_ADDRESSES",
+    "DEFAULT_DISCOVERY_BAUDRATES",
+    "DEFAULT_DISCOVERY_PROTOCOLS",
     "PARAMETERS",
     "AcquisitionSummary",
     "AlarmState",
@@ -120,10 +125,10 @@ __all__ = [
     "CsvSink",
     "DeviceInfo",
     "DeviceResult",
-    "DiscoveryResult",
     "ErrorContext",
     "ErrorPolicy",
     "FakeTransport",
+    "FindResult",
     "FirmwareVersion",
     "InMemorySink",
     "JsonlSink",
@@ -180,11 +185,10 @@ __all__ = [
     "WatlowValidationError",
     "__version__",
     "classify_family",
+    "find_devices",
     "open_controller",
     "open_device",
     "pipe",
     "record",
     "sample_to_row",
-    "sweep_modbus",
-    "sweep_stdbus",
 ]

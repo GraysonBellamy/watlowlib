@@ -107,7 +107,7 @@ src/watlowlib/
     loop.py             # ControllerLoop sub-facade returned by controller.loop(n)
     session.py          # I/O lock, gates, availability cache
     factory.py          # open_device / open_controller
-    discovery.py        # sweep MS/TP MACs 0x10..0x1F or Modbus addresses 1..247
+    discovery.py        # find_devices() — port-scan helper across protocols, bauds, addresses
 
   manager.py            # WatlowManager — multi-controller, port-aware serializer
   maintenance.py        # baud / address / protocol-mode change helpers (confirmed PERSISTENT writes)
@@ -434,13 +434,14 @@ class AlarmState:
     raw_bits: int
 
 @dataclass(frozen=True, slots=True)
-class DiscoveryResult:
+class FindResult:
     port: str
-    serial_settings: SerialSettings
     address: int
-    protocol: ProtocolKind | None
-    info: DeviceInfo | None
-    error: WatlowError | None
+    baudrate: int
+    protocol: ProtocolKind
+    ok: bool
+    info: DeviceInfo | None = None
+    error: WatlowError | None = None
 ```
 
 Forward extension: `Reading.status_flags: Mapping[str, bool]` is not
@@ -468,16 +469,17 @@ deepest RE coverage of:
 
 Auto-detect never tries multiple bauds; the user sets one. Both probes
 are read-only by construction. The detector accepts an `address: int`
-arg; if omitted it tries `1` first then sweeps `2..16` for Std Bus and
-`2..247` for Modbus only when explicitly asked (a separate
-`watlow-discover` CLI, not the open-device path).
+arg (default `1`); broader address sweeps live in the separate
+`find_devices()` / `watlow-discover` discovery path, not the
+open-device path.
 
-`watlow-discover` accepts repeatable `--baud` flags for environments
-where the configured baud is not known; `open_device` never sweeps
-baud. Watlow PM ships at 38400 8N1 on Std Bus per the manuals, and
-Modbus RTU on the same controller can be configured at 9600 / 19200
-/ 38400 / 57600 / 115200 — discovery defaults to a small
-spec-supported set when `--baud` is not supplied.
+`watlow-discover` (and the underlying `find_devices()`) accept
+repeatable `--baud` flags for environments where the configured baud
+is not known; `open_device` never sweeps baud. Watlow PM ships at
+38400 8N1 on Std Bus per the manuals, and Modbus RTU on the same
+controller can be configured at 9600 / 19200 / 38400 / 57600 /
+115200 — discovery defaults to `(38400, 19200, 9600)` when `--baud`
+is not supplied.
 
 ## 8. Errors
 

@@ -71,23 +71,25 @@ the async recorder — see [Logging and acquisition](logging.md).
 ## Discovery
 
 ```python
-from watlowlib import sweep_stdbus
+from watlowlib import find_devices
 from watlowlib.sync import SyncPortal
 
 with SyncPortal() as portal:
-    results = portal.call(sweep_stdbus, "/dev/ttyUSB0")
+    results = portal.call(find_devices, ports=["/dev/ttyUSB0"])
     for row in results:
-        if row.protocol is not None:
-            print(row.address, row.info.part_number.raw)
+        if row.ok:
+            print(row.port, row.baudrate, row.address,
+                  row.info.part_number.raw)
 ```
 
-[`sweep_stdbus`](../src/watlowlib/devices/discovery.py) walks Standard
-Bus addresses 1–16; `sweep_modbus` walks a configurable Modbus slave
-range. Both return one [`DiscoveryResult`](api/devices.md) per
-address regardless of outcome — the `protocol` and `info` fields are
-populated only when a device responded. The sync facade exposes
-discovery through a portal rather than a dedicated wrapper because
-port scanning is rarely a tight loop. See [Troubleshooting](troubleshooting.md).
+[`find_devices()`](../src/watlowlib/devices/discovery.py) probes
+`ports × baudrates × protocols × addresses` and returns one
+[`FindResult`](api/devices.md) per attempt. With no `ports` argument
+it enumerates every visible serial port via `anyserial`; defaults
+hit address `1` at bauds `38400 / 19200 / 9600` on both Watlow
+protocols. The sync facade exposes discovery through a portal rather
+than a dedicated wrapper because port scanning is rarely a tight
+loop. See [Troubleshooting](troubleshooting.md).
 
 ## Persistent writes need `confirm=True`
 

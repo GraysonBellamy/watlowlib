@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`watlowlib.find_devices()`** — port-scan discovery helper that
+  walks the cartesian product of `ports × baudrates × protocols ×
+  addresses` and returns one `FindResult` per probe attempt. With no
+  arguments, scans every visible serial port via
+  `anyserial.list_serial_ports()` at bauds `(38400, 19200, 9600)` on
+  both Standard Bus and Modbus RTU at address `1` — fast enough
+  (~12 s on a four-port rig) for a GUI Discover dialog.
+  Read-only by construction (calls only `Controller.identify()`),
+  short-circuits per-port on open failure, surfaces
+  `WatlowConnectionError` / `WatlowTimeoutError` on `FindResult.error`
+  rather than raising. Mirrors the
+  `alicatlib.find_devices` / `sartoriuslib.discover_port` ecosystem
+  contract so the `capa` Setup-editor Discover dialog can wire
+  Watlow alongside the other adapters.
+- **`watlowlib.FindResult`** — frozen dataclass: `port`, `address`,
+  `baudrate` (flat), `protocol`, `ok`, `info`, `error`. A single
+  `ok` attribute is the canonical filter for "responsive vs silent /
+  errored" rows; populated `info.health` and
+  `info.configured_protocol` come along for free (the scan passes
+  `query_configured_protocol=True` so GUI rows can show
+  `health=ok`).
+- Module-level `DEFAULT_DISCOVERY_ADDRESSES` (`(1,)`),
+  `DEFAULT_DISCOVERY_BAUDRATES` (`(38400, 19200, 9600)`), and
+  `DEFAULT_DISCOVERY_PROTOCOLS` (`(STDBUS, MODBUS_RTU)`) constants
+  for callers that override per-rig without hard-coding policy.
+
+### Changed (BREAKING)
+
+- **`watlowlib.sweep_stdbus` / `watlowlib.sweep_modbus` removed.**
+  Both single-protocol async-generator sweeps are replaced by the
+  single multi-port / multi-baud / multi-protocol `find_devices()`
+  API. Drop-in equivalents:
+  - `sweep_stdbus(port, addresses=range(1, 17))` →
+    `find_devices(ports=[port], protocols=(ProtocolKind.STDBUS,), addresses=range(1, 17))`
+  - `sweep_modbus(port, addresses=range(1, 17))` →
+    `find_devices(ports=[port], protocols=(ProtocolKind.MODBUS_RTU,), addresses=range(1, 17), baudrates=(9600,))`
+- **`DiscoveryResult` replaced by `FindResult`.** The new shape
+  flattens `baudrate` (was nested in `serial_settings`), adds an
+  explicit `ok: bool` field, and defaults `info` / `error` to
+  `None`. `protocol` is now always populated (never `None`) —
+  every probe attempt names the protocol it tried.
+- **`DEFAULT_STDBUS_RANGE` / `DEFAULT_MODBUS_RANGE` removed.** Both
+  defaulted to `1..16`; the replacement default
+  `DEFAULT_DISCOVERY_ADDRESSES = (1,)` is narrower on purpose
+  because multi-port × multi-baud × multi-protocol scans balloon
+  probe count.
+- **`watlow-discover` CLI rewritten.** `--port` is now optional and
+  repeatable (omit to scan every port via `anyserial`). `--baud` is
+  repeatable; default is `(38400, 19200, 9600)`. `--addresses`
+  defaults to `1` (was `1..16`). `--protocol` default is now `both`.
+  New: `--responsive-only` to suppress silent rows, `--probe-timeout`
+  for the per-probe budget. Output rows show port, baudrate, address,
+  protocol, and `health=…` on responsive rows.
+
 ## [0.4.0]
 
 ### Changed (BREAKING)
