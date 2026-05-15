@@ -22,8 +22,8 @@ from watlowlib import (
     DEFAULT_DISCOVERY_ADDRESSES,
     DEFAULT_DISCOVERY_BAUDRATES,
     DEFAULT_DISCOVERY_PROTOCOLS,
+    DiscoveryResult,
     FakeTransport,
-    FindResult,
     ProtocolKind,
     SerialSettings,
     WatlowConnectionError,
@@ -318,14 +318,14 @@ async def test_find_devices_stdbus_happy_path(
     assert row.address == 1
     assert row.baudrate == 38400
     assert row.protocol is ProtocolKind.STDBUS
-    assert row.info is not None
-    assert row.info.part_number.raw.startswith("PM3R1CA")
+    assert row.device_info is not None
+    assert row.device_info.part_number.raw.startswith("PM3R1CA")
     assert row.error is None
     # `query_configured_protocol=True` is passed; identify() reads
     # parameter 17009 but our scripted fake doesn't include it, so the
     # field stays None (this is the expected silent-secondary-field
     # behaviour — health stays OK because the load-bearing reads landed).
-    assert row.info.configured_protocol is None
+    assert row.device_info.configured_protocol is None
 
 
 # --- Modbus happy path --------------------------------------------
@@ -373,8 +373,8 @@ async def test_find_devices_modbus_happy_path(
     assert row.ok is True
     assert row.baudrate == 9600
     assert row.protocol is ProtocolKind.MODBUS_RTU
-    assert row.info is not None
-    assert row.info.part_number.raw.startswith("PM3R1CA")
+    assert row.device_info is not None
+    assert row.device_info.part_number.raw.startswith("PM3R1CA")
 
 
 # --- Sad paths -----------------------------------------------------
@@ -433,7 +433,7 @@ async def test_find_devices_silent_bus(
 
     assert len(rows) == 1
     assert rows[0].ok is False
-    assert rows[0].info is None
+    assert rows[0].device_info is None
     # Silent address → identify produced an empty DeviceInfo; the
     # demote synthesises a WatlowTimeoutError so absent rows always
     # carry a typed error.
@@ -670,7 +670,7 @@ async def test_find_devices_ok_flag_distinguishes_responsive_from_silent(
     assert [r.port for r in responsive] == ["/dev/live"]
 
 
-# --- FindResult shape ---------------------------------------------
+# --- DiscoveryResult shape ---------------------------------------------
 
 
 @pytest.mark.anyio
@@ -694,7 +694,7 @@ async def test_find_result_carries_flat_baudrate_and_health(
 
     from watlowlib.devices.models import DeviceHealth
 
-    assert isinstance(rows[0], FindResult)
+    assert isinstance(rows[0], DiscoveryResult)
     assert rows[0].baudrate == 19200
-    assert rows[0].info is not None
-    assert rows[0].info.health is DeviceHealth.OK
+    assert rows[0].device_info is not None
+    assert rows[0].device_info.health is DeviceHealth.OK

@@ -37,7 +37,7 @@ from watlowlib.protocol.base import ProtocolKind
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from watlowlib.devices.models import FindResult
+    from watlowlib.devices.models import DiscoveryResult
 
 __all__ = ["build_parser", "main", "parse_addresses"]
 
@@ -127,7 +127,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     protocols = _PROTOCOL_CHOICES[args.protocol]
     ports: list[str] | None = args.port or None
 
-    async def _scan() -> list[FindResult]:
+    async def _scan() -> list[DiscoveryResult]:
         return await find_devices(
             ports=ports,
             addresses=addresses,
@@ -184,44 +184,49 @@ def parse_addresses(specs: list[str]) -> tuple[int, ...]:
     return tuple(out)
 
 
-def _row_to_dict(row: FindResult) -> dict[str, Any]:
+def _row_to_dict(row: DiscoveryResult) -> dict[str, Any]:
     info_dict: dict[str, Any] | None = None
-    if row.info is not None:
-        configured = row.info.configured_protocol
+    if row.device_info is not None:
+        info = row.device_info
+        configured = info.configured_protocol
         info_dict = {
-            "part_number": row.info.part_number.raw,
-            "family": row.info.family.value,
-            "hardware_id": row.info.hardware_id,
-            "firmware_id": row.info.firmware_id,
-            "serial_number": row.info.serial_number,
-            "loops": row.info.loops,
-            "capabilities": row.info.capabilities.value,
-            "health": row.info.health.value,
+            "part_number": info.part_number.raw,
+            "family": info.family.value,
+            "hardware_id": info.hardware_id,
+            "firmware_id": info.firmware_id,
+            "serial_number": info.serial_number,
+            "loops": info.loops,
+            "capabilities": info.capabilities.value,
+            "health": info.health.value,
             "configured_protocol": configured.value if configured is not None else None,
         }
     return {
+        "ok": row.ok,
         "port": row.port,
         "address": row.address,
         "baudrate": row.baudrate,
-        "protocol": row.protocol.value,
-        "ok": row.ok,
-        "info": info_dict,
+        "protocol": row.protocol.value if row.protocol is not None else None,
+        "device_info": info_dict,
         "error": str(row.error) if row.error is not None else None,
+        "elapsed_s": row.elapsed_s,
     }
 
 
-def _format_row(row: FindResult) -> str:
-    proto = row.protocol.value
-    if row.info is not None:
+def _format_row(row: DiscoveryResult) -> str:
+    proto = row.protocol.value if row.protocol is not None else "-"
+    if row.device_info is not None:
+        info = row.device_info
         return (
-            f"  ✓ {row.port:<14} {proto:<11} addr={row.address:<3} "
-            f"baud={row.baudrate:<6} "
-            f"part={row.info.part_number.raw or '-':<16} "
-            f"fw={row.info.firmware_id} hw={row.info.hardware_id} "
-            f"health={row.info.health.value}"
+            f"  ✓ {row.port:<14} {proto:<11} addr={row.address!s:<3} "
+            f"baud={row.baudrate!s:<6} "
+            f"part={info.part_number.raw or '-':<16} "
+            f"fw={info.firmware_id} hw={info.hardware_id} "
+            f"health={info.health.value}"
         )
     error = type(row.error).__name__ if row.error is not None else "no-reply"
-    return f"  · {row.port:<14} {proto:<11} addr={row.address:<3} baud={row.baudrate:<6} {error}"
+    return (
+        f"  · {row.port:<14} {proto:<11} addr={row.address!s:<3} baud={row.baudrate!s:<6} {error}"
+    )
 
 
 def _json_default(obj: object) -> object:

@@ -38,7 +38,7 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol
@@ -58,6 +58,7 @@ __all__ = [
     "AcquisitionSummary",
     "OverflowPolicy",
     "PollSource",
+    "Recording",
     "record",
 ]
 
@@ -93,13 +94,25 @@ class OverflowPolicy(Enum):
     historical buffer contents. Each evicted batch is counted as late."""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class AcquisitionSummary:
-    """Per-run summary emitted after ``record()``'s CM exits.
+    """Per-run summary owned and mutated by the recorder.
+
+    **Mutability contract** (§M of UNIFIED_API_HANDOFF.md): the
+    recorder is the *only* writer. Counters update in place during
+    the run so progress-polling consumers (TUIs, dashboards) see live
+    values. Consumers must treat this object as read-only.
+
+    ``finished_at`` is ``None`` while the recording is in flight and
+    is set on context-manager exit. Percentile fields
+    (``tick_duration_ms_p50`` / ``p99``) are materialized at exit
+    only because percentiles are batch-computed; the in-flight
+    counters reflect the latest observation.
 
     Attributes:
         started_at: Wall-clock at the first scheduled tick.
-        finished_at: Wall-clock at producer shutdown.
+        finished_at: Wall-clock at producer shutdown, or ``None``
+            while running.
         samples_emitted: Count of per-tick batches actually pushed
             onto the receive stream. A tick that produced zero samples
             (every device errored) still counts as one emitted batch.
@@ -114,27 +127,59 @@ class AcquisitionSummary:
             consumer is saturating the schedule.
         tick_duration_ms_p50: Median wall-clock duration of a single
             ``source.poll_many(...)`` call across the run, in
-            milliseconds. Compares directly to ``1000 / rate_hz`` —
-            if it approaches the period, the schedule is saturated.
+            milliseconds. Set on exit only. Compares directly to
+            ``1000 / rate_hz`` — if it approaches the period, the
+            schedule is saturated.
         tick_duration_ms_p99: 99th-percentile tick duration, in
-            milliseconds. Surfaces the rare-but-bad cases where a
-            tick stalled behind a contended port lock or a slow
-            EEPROM commit. A large gap between ``p99`` and ``p50``
-            usually means another task is competing for the per-port
-            lock during writes.
+            milliseconds. Set on exit only. Surfaces rare-but-bad
+            cases where a tick stalled behind a contended port lock
+            or a slow EEPROM commit.
         disconnects: Count of WatlowConnectionError events the
             producer absorbed under ``auto_reconnect=True``. Always
             ``0`` when ``auto_reconnect`` was off.
     """
 
     started_at: datetime
-    finished_at: datetime
-    samples_emitted: int
-    samples_late: int
-    max_drift_ms: float
+    finished_at: datetime | None = None
+    samples_emitted: int = 0
+    samples_late: int = 0
+    max_drift_ms: float = 0.0
     tick_duration_ms_p50: float = 0.0
     tick_duration_ms_p99: float = 0.0
     disconnects: int = 0
+
+
+@dataclass(slots=True)
+class Recording[T]:
+    """Container yielded by :func:`record` — stream + live summary + rate.
+
+    Cross-library shape (alicat / sartorius / watlow / nidaq) so
+    consumers consume the same ``recording.stream`` /
+    ``recording.summary`` / ``recording.rate_hz`` accessors regardless
+    of vendor.
+
+    Per-library payload (the ``T`` parameter):
+
+    - alicat / sartorius: ``Recording[Mapping[str, Sample]]``
+    - watlow: ``Recording[Sequence[Sample]]`` — per-tick batches
+    - nidaq: ``Recording[DaqReading]`` (polled) /
+      ``Recording[DaqBlock]`` (block)
+
+    Attributes:
+        stream: Async iterator of per-tick payloads. Consume with
+            ``async for batch in recording.stream``.
+        summary: Live :class:`AcquisitionSummary` — the recorder
+            mutates this in place; consumers read.
+            ``summary.finished_at`` is ``None`` while running and is
+            populated on context-manager exit.
+        rate_hz: The cadence the recorder is running at, captured at
+            ``record()`` entry. Useful for queue-sizing downstream
+            buffers.
+    """
+
+    stream: AsyncIterator[T]
+    summary: AcquisitionSummary
+    rate_hz: float
 
 
 class PollSource(Protocol):
@@ -190,19 +235,26 @@ async def record(
     buffer_size: int = 64,
     auto_reconnect: bool = False,
     reconnect_factory: Callable[[], Awaitable[PollSource]] | None = None,
-) -> AsyncGenerator[AsyncIterator[Sequence[Sample]]]:
+) -> AsyncGenerator[Recording[Sequence[Sample]]]:
     """Record polled samples into a receive stream at an absolute cadence.
 
     Usage::
 
         async with record(
             controller, parameters=["process_value", "setpoint"], rate_hz=2, duration=10
-        ) as stream:
-            async for batch in stream:
+        ) as recording:
+            async for batch in recording.stream:
                 for sample in batch:
                     print(sample.parameter, sample.value)
+            # recording.summary is live; recording.summary.finished_at is None
+            # while running and set on CM exit.
 
-    The CM yields an async iterator of per-tick :class:`Sample` batches.
+    The CM yields a :class:`Recording[Sequence[Sample]]` exposing
+    ``.stream`` (async iterator of per-tick :class:`Sample` batches),
+    ``.summary`` (live :class:`AcquisitionSummary` — recorder is sole
+    writer), and ``.rate_hz`` (the cadence the recorder is running
+    at).
+
     Each batch is a flat :class:`Sequence` — one entry per (device,
     parameter, instance) read that succeeded. Failed reads are dropped
     by the source and logged at WARN.
@@ -241,7 +293,8 @@ async def record(
             transport-reopen logic inside ``poll_many``).
 
     Yields:
-        An async iterator of per-tick :class:`Sample` batches.
+        A :class:`Recording[Sequence[Sample]]` exposing ``.stream``,
+        ``.summary``, and ``.rate_hz``.
 
     Raises:
         ValueError: ``rate_hz <= 0``, ``duration <= 0``, or
@@ -267,9 +320,10 @@ async def record(
     # consumer starts iterating) keeps the eviction path off the
     # consumer's iterator and avoids racing with it.
     drop_rx = receive_stream.clone()
-    stats = _RunStats()
 
     started_at = datetime.now(UTC)
+    summary = AcquisitionSummary(started_at=started_at)
+    tick_durations_ms: list[float] = []
     _logger.info(
         "recorder.start rate_hz=%s duration_s=%s overflow=%s buffer_size=%s names=%s",
         rate_hz,
@@ -292,31 +346,25 @@ async def record(
                 period,
                 total_ticks,
                 overflow,
-                stats,
+                summary,
+                tick_durations_ms,
                 auto_reconnect=auto_reconnect,
                 reconnect_factory=reconnect_factory,
             )
 
         tg.start_soon(_producer_entrypoint)
         try:
-            yield receive_stream
+            yield Recording(stream=receive_stream, summary=summary, rate_hz=rate_hz)
         finally:
             # Cancel + drain before the CM returns — producer lifetime
             # is strictly nested inside the ``async with``.
             tg.cancel_scope.cancel()
 
     finished_at = datetime.now(UTC)
-    p50, p99 = _tick_percentiles(stats.tick_durations_ms)
-    summary = AcquisitionSummary(
-        started_at=started_at,
-        finished_at=finished_at,
-        samples_emitted=stats.emitted,
-        samples_late=stats.late,
-        max_drift_ms=stats.max_drift_ms,
-        tick_duration_ms_p50=p50,
-        tick_duration_ms_p99=p99,
-        disconnects=stats.disconnects,
-    )
+    p50, p99 = _tick_percentiles(tick_durations_ms)
+    summary.finished_at = finished_at
+    summary.tick_duration_ms_p50 = p50
+    summary.tick_duration_ms_p99 = p99
     _logger.info(
         "recorder.stop emitted=%s late=%s max_drift_ms=%.3f "
         "tick_p50_ms=%.3f tick_p99_ms=%.3f duration_s=%.3f",
@@ -361,21 +409,6 @@ def _tick_percentiles(values: list[float]) -> tuple[float, float]:
     return _q(0.5), _q(0.99)
 
 
-@dataclass(slots=True)
-class _RunStats:
-    """Producer-side counters surfaced via :class:`AcquisitionSummary`."""
-
-    emitted: int = 0
-    late: int = 0
-    max_drift_ms: float = 0.0
-    disconnects: int = 0
-    # One entry per successful poll (auto-reconnect failures are not
-    # recorded — those are bulk waits, not tick durations). Bounded by
-    # ``total_ticks`` for finite runs; for indefinite runs, memory
-    # scales with run length (~24 B per float).
-    tick_durations_ms: list[float] = field(default_factory=list[float])
-
-
 async def _run_producer(
     source: PollSource,
     send_stream: MemoryObjectSendStream[Sequence[Sample]],
@@ -386,7 +419,8 @@ async def _run_producer(
     period: float,
     total_ticks: int | None,
     overflow: OverflowPolicy,
-    stats: _RunStats,
+    summary: AcquisitionSummary,
+    tick_durations_ms: list[float],
     *,
     auto_reconnect: bool = False,
     reconnect_factory: Callable[[], Awaitable[PollSource]] | None = None,
@@ -417,7 +451,7 @@ async def _run_producer(
                 # Overran by more than one full period — skip to the
                 # next valid slot rather than trying to catch up.
                 missed = int((now - target) / period)
-                stats.late += missed
+                summary.samples_late += missed
                 tick += missed
                 target = start + tick * period
             if anyio.current_time() < target:
@@ -433,8 +467,8 @@ async def _run_producer(
             except WatlowConnectionError as exc:
                 if not auto_reconnect:
                     raise
-                stats.late += 1
-                stats.disconnects += 1
+                summary.samples_late += 1
+                summary.disconnects += 1
                 wait_s = _RECONNECT_BACKOFF_S[min(backoff_idx, len(_RECONNECT_BACKOFF_S) - 1)]
                 _logger.warning(
                     "recorder.disconnected reason=%s tick=%d backoff_s=%.2f",
@@ -457,11 +491,11 @@ async def _run_producer(
 
             backoff_idx = 0
             tick_duration_ms = (time.monotonic() - tick_start) * 1_000.0
-            stats.tick_durations_ms.append(tick_duration_ms)
+            tick_durations_ms.append(tick_duration_ms)
             drift_s = anyio.current_time() - target
-            stats.max_drift_ms = max(stats.max_drift_ms, drift_s * 1_000.0)
+            summary.max_drift_ms = max(summary.max_drift_ms, drift_s * 1_000.0)
 
-            await _publish(send_stream, drop_rx, batch, overflow, stats)
+            await _publish(send_stream, drop_rx, batch, overflow, summary)
             tick += 1
     finally:
         await send_stream.aclose()
@@ -473,37 +507,37 @@ async def _publish(
     drop_rx: MemoryObjectReceiveStream[Sequence[Sample]],
     batch: Sequence[Sample],
     overflow: OverflowPolicy,
-    stats: _RunStats,
+    summary: AcquisitionSummary,
 ) -> None:
     """Enqueue ``batch`` per the configured :class:`OverflowPolicy`."""
     if overflow is OverflowPolicy.BLOCK:
         await send_stream.send(batch)
-        stats.emitted += 1
+        summary.samples_emitted += 1
         return
     if overflow is OverflowPolicy.DROP_NEWEST:
         try:
             send_stream.send_nowait(batch)
         except anyio.WouldBlock:
-            stats.late += 1
+            summary.samples_late += 1
             _logger.warning(
                 "recorder.drop_newest reason=consumer_backpressure",
             )
             return
-        stats.emitted += 1
+        summary.samples_emitted += 1
         return
     if overflow is OverflowPolicy.DROP_OLDEST:
         # Try the unblocked send first; if full, evict the oldest queued
         # batch through the producer-side receive clone and retry.
         try:
             send_stream.send_nowait(batch)
-            stats.emitted += 1
+            summary.samples_emitted += 1
             return
         except anyio.WouldBlock:
             pass
         while True:
             try:
                 drop_rx.receive_nowait()
-                stats.late += 1
+                summary.samples_late += 1
                 _logger.warning(
                     "recorder.drop_oldest reason=consumer_backpressure",
                 )
@@ -512,7 +546,7 @@ async def _publish(
                 pass
             try:
                 send_stream.send_nowait(batch)
-                stats.emitted += 1
+                summary.samples_emitted += 1
                 return
             except anyio.WouldBlock:
                 # Still full; loop and evict another queued item.

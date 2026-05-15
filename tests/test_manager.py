@@ -13,8 +13,8 @@ from watlowlib import (
     WatlowManager,
     WatlowTimeoutError,
     WatlowValidationError,
-    open_controller,
 )
+from watlowlib.testing import open_test_controller
 
 # Same captured PM3 PV (4001) round-trip used by ``test_integration.py``.
 REQ_READ_PV = bytes.fromhex("55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99")
@@ -37,7 +37,7 @@ async def test_manager_add_prebuilt_controller(anyio_backend: object) -> None:
     _ = anyio_backend
     transport = FakeTransport(_pv_script())
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,

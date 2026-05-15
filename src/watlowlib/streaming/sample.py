@@ -4,15 +4,22 @@ A :class:`Sample` is the unit the recorder emits into its memory-object
 stream. Watlow polls a *small group* of parameters per device per tick
 (unlike Alicat, which returns one wide ``DataFrame`` per poll), so a
 recorder tick produces N×M samples — one per (device, parameter) pair
-that succeeded — each one carrying:
+that succeeded.
 
-- ``midpoint_at`` — best point-estimate of the on-device acquisition
-  instant (halfway between request and reply). Use this for aligning
-  Watlow values against other sensor streams.
-- ``monotonic_ns`` — :func:`time.monotonic_ns` at the read boundary,
-  for drift analysis only (no calendar meaning).
-- ``raw`` — the wire payload that produced the value. Available for
-  diagnostics; tabular sinks drop it.
+Timestamp contract (uniform across the sibling libraries):
+
+- ``t_mono_ns`` — :func:`time.monotonic_ns` midpoint of the request/
+  reply round-trip; canonical join key for cross-stream alignment
+  (monotonic, never wall-clock).
+- ``t_utc`` — wall-clock midpoint of the request/reply round-trip
+  (tz-aware UTC). Used for human-readable sink timestamps.
+- ``t_midpoint_mono_ns`` — optional integration-window midpoint in
+  monotonic nanoseconds. For polled reads this is ``None``; sensors
+  with integration windows (e.g. multi-sample averages) populate it.
+
+I/O provenance stays alongside the canonical timestamps:
+``requested_at`` / ``received_at`` / ``latency_s`` are the per-round-
+trip wire boundaries, available for diagnostics but not the join key.
 
 The shape is deliberately long-format (one row per parameter) so the
 SQLite cross-vendor test can union Watlow rows with Alicat rows
@@ -61,16 +68,19 @@ class Sample:
             constants). The Watlow recorder always populates a
             :class:`Unit`; the ``str`` branch only fires for hand-built
             cross-vendor samples.
-        monotonic_ns: :func:`time.monotonic_ns` at the read site,
-            roughly the midpoint of send/receive. Used for scheduling
-            / drift analysis only — never displayed.
+        t_mono_ns: :func:`time.monotonic_ns` midpoint of the request/
+            reply round-trip — canonical join key. Monotonic since OS
+            boot; no calendar meaning.
+        t_utc: Wall-clock midpoint of the request/reply round-trip
+            (tz-aware UTC). Preferred point estimate when aligning
+            Watlow samples against other sensor streams in human time.
+        t_midpoint_mono_ns: Optional integration-window midpoint in
+            monotonic nanoseconds. ``None`` for single polled reads;
+            sensors that average over a window populate it.
         requested_at: Wall-clock ``datetime`` (UTC) captured just
             before the read leaves the host.
         received_at: Wall-clock ``datetime`` (UTC) captured just after
             the reply is decoded.
-        midpoint_at: ``(requested_at + received_at) / 2`` — the
-            preferred point estimate of the sample instant. Use this
-            when aligning Watlow samples against other sensor streams.
         latency_s: ``(received_at - requested_at).total_seconds()`` —
             precomputed for convenience.
         raw: The wire payload that produced the value. Available for
@@ -85,9 +95,10 @@ class Sample:
     instance: int
     value: float | int | str | bool | None
     unit: Unit | str | None
-    monotonic_ns: int
+    t_mono_ns: int
+    t_utc: datetime
+    t_midpoint_mono_ns: int | None
     requested_at: datetime
     received_at: datetime
-    midpoint_at: datetime
     latency_s: float
     raw: bytes

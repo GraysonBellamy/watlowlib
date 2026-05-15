@@ -28,12 +28,12 @@ from watlowlib import (
     SerialSettings,
     WatlowConfirmationRequiredError,
     WatlowValidationError,
-    open_controller,
 )
 from watlowlib.commands import PidGains, read_pid, write_pid
 from watlowlib.devices.session import Session
 from watlowlib.protocol.modbus import ModbusProtocolClient
 from watlowlib.registry.families import ControllerFamily
+from watlowlib.testing import open_test_controller
 
 # --- Fixtures -------------------------------------------------------
 
@@ -105,7 +105,7 @@ async def test_loop_one_lowers_to_instance_one_stdbus(anyio_backend: object) -> 
     """``controller.loop(1).read_pv()`` issues the same wire bytes as ``read_pv``."""
     _ = anyio_backend
     transport = FakeTransport({REQ_READ_PV: RSP_READ_PV})
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -127,7 +127,7 @@ async def test_loop_validates_after_identify_caches_loops(
     """After identify on PM3, ``loops == 1`` and ``loop(2)`` raises at construction."""
     _ = anyio_backend
     transport = FakeTransport({REQ_READ_PART: RSP_READ_PART})
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,

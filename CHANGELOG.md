@@ -7,6 +7,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-15
+
+### Added (Unified Device-Library API)
+
+- **`watlowlib.PollSourceAdapter`** — wraps one `Controller` as a
+  named `PollSource`. Implements
+  `poll_many(parameters, *, names=None, instances=(1,))
+  -> Sequence[Sample]` and relabels each emitted `Sample.device` to
+  the caller-provided name via `dataclasses.replace`. Shipped at the
+  same name (different signature) as the equivalent classes in
+  `alicatlib`, `sartoriuslib`, and `nidaqlib` so consumers (capa, etc.)
+  import the same shape from every device library.
+- **`watlowlib.Recording[T]`** — frozen container yielded by
+  `record(...)`. Exposes `.stream` (async iterator of per-tick
+  batches), `.summary` (live `AcquisitionSummary`), and `.rate_hz`.
+  Cross-library shape; consumers branch on the payload type per lib
+  (watlow: `Recording[Sequence[Sample]]`).
+- **`watlowlib.DeviceSnapshot` / `watlowlib.WatlowDeviceSnapshot`** —
+  I/O-free identity snapshot built from cached `DeviceInfo` + session
+  counters. Returned by new `Controller.snapshot()` /
+  `SyncController.snapshot()`. Includes `family`, `capabilities`,
+  and an `availability_summary` mapping of UNSUPPORTED commands.
+- **`watlowlib.units.to_pint(unit)`** — maps a `Unit` (or alias
+  string) to a pint-compatible unit string (`"degC"` / `"degF"` /
+  `"percent"`). `pint` is **not** a runtime dependency — `to_pint`
+  returns plain strings. Moves the in-house mapping out of capa's
+  adapter layer.
+- **`DeviceResult.success(value)` / `DeviceResult.failure(error)`**
+  classmethod factories (kwarg construction still works).
+- **`open_device(..., identify=True)`** by default — runs
+  `Controller.identify()` after the transport opens so
+  `Controller.snapshot()` renders without further wire I/O. Pass
+  `identify=False` for fast-path opens.
+- **`watlowlib.testing.open_test_controller(transport, ...)`** —
+  public testing helper that builds an opened `Controller` over a
+  `FakeTransport` for downstream test suites. Replaces the now-
+  private factory entry point.
+- **`Session.recoverable_error_count`** — public counter incremented
+  when the session swallows-and-retries a transient transport error.
+  Wired but dormant — `WatlowTransientTransportError` is deferred per
+  the spec; the field stays at 0 unless a future transient class
+  surfaces.
+- **`Session.last_error` / `Session.availability_summary()`** —
+  accessors that feed `WatlowDeviceSnapshot`.
+- **`AcquisitionSummary` is now mutable.** Counters update in place
+  during a run; consumers (TUIs, dashboards) read live progress
+  through `recording.summary`. `finished_at` is `None` while running
+  and set on context-manager exit.
+
+### Changed (BREAKING — Unified Device-Library API)
+
+- **`open_controller` removed from the public API.** Use
+  `open_device(...)` for production or
+  `watlowlib.testing.open_test_controller(transport, ...)` for tests.
+  The factory body lives at `watlowlib.devices.factory._open_controller`
+  (module-private).
+- **`FindResult` renamed to `DiscoveryResult`** with reshaped fields
+  per the unified spec:
+  - `info` → `device_info`
+  - `error` typed as `WatlowError | None` (was `object | None`)
+  - added `elapsed_s: float`
+  - `address` widened to `str | int | None` for cross-library
+    compatibility (watlow still passes `int` in practice).
+- **`Sample` timestamp rename.** `monotonic_ns` → `t_mono_ns`;
+  `midpoint_at` → `t_utc`; new optional `t_midpoint_mono_ns: int | None`
+  for sensors with integration windows. `requested_at` /
+  `received_at` / `latency_s` retained as I/O provenance.
+- **`record()` yields a `Recording[Sequence[Sample]]`** instead of a
+  bare receive stream. Migration: `as stream:` → `as recording:` and
+  `async for batch in stream` → `async for batch in recording.stream`.
+- **`AcquisitionSummary` is mutable** (was `frozen=True`). The
+  recorder is the sole writer; consumers treat it as read-only.
+- **`sample_to_row` row keys** updated to match the new field set:
+  `monotonic_ns`/`midpoint_at` columns replaced by `t_mono_ns` /
+  `t_utc`.
+- **Sync facade**: `record(...)` now yields a `SyncRecording`
+  (`.stream`, `.summary`, `.rate_hz`); `SyncController.snapshot()`
+  added.
+
+### Removed (BREAKING)
+
+- `watlowlib.open_controller` — see `open_device` / `open_test_controller`.
+- `watlowlib.FindResult` — see `DiscoveryResult`.
+- `Sample.monotonic_ns` / `Sample.midpoint_at` — see `t_mono_ns` /
+  `t_utc`.
+
+### Notes
+
+- `WatlowTransientTransportError` is **deferred** per the unified
+  spec §F. No cold-open race has been observed in watlow today; the
+  typed transient stays out of the public surface until evidence
+  surfaces.
+- `Controller.expected_rate_hz` is **not added** — the recorder rate
+  lives on `Recording.rate_hz` per §I.
+
+---
+
+## [0.5.0] — 2026-05-14
+
 ### Added
 
 - **`watlowlib.find_devices()`** — port-scan discovery helper that

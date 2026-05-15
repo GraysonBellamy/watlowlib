@@ -106,7 +106,7 @@ src/watlowlib/
     controller.py       # the Controller facade
     loop.py             # ControllerLoop sub-facade returned by controller.loop(n)
     session.py          # I/O lock, gates, availability cache
-    factory.py          # open_device / open_controller
+    factory.py          # open_device / _open_controller (private)
     discovery.py        # find_devices() — port-scan helper across protocols, bauds, addresses
 
   manager.py            # WatlowManager — multi-controller, port-aware serializer

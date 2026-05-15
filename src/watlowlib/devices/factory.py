@@ -28,7 +28,7 @@ from watlowlib.transport.serial import SerialTransport
 if TYPE_CHECKING:
     from watlowlib.transport.base import Transport
 
-__all__ = ["coerce_wire_temperature_unit", "open_controller", "open_device"]
+__all__ = ["coerce_wire_temperature_unit", "open_device"]
 
 
 async def open_device(
@@ -38,6 +38,7 @@ async def open_device(
     address: int = 1,
     serial_settings: SerialSettings | None = None,
     assert_wire_temperature_unit: Unit | str | None = None,
+    identify: bool = True,
 ) -> Controller:
     """Open a controller on a serial port.
 
@@ -58,6 +59,11 @@ async def open_device(
             detect uses the same framing for both probes — there is
             no baud sweeping in the open path (cross-cutting
             invariant 5).
+        identify: When ``True`` (default), :meth:`Controller.identify`
+            runs after the transport opens so :meth:`Controller.snapshot`
+            renders without further wire I/O. Set ``False`` for the
+            fast-path open scenarios where caller code drives identity
+            itself or wants the open to return immediately.
         assert_wire_temperature_unit: User-asserted scale of
             temperature values on the wire. Sets
             :class:`Reading.unit` / :class:`Sample.unit` for
@@ -75,10 +81,11 @@ async def open_device(
             §Units — before asserting it here.
 
     Returns:
-        An *opened* :class:`Controller` when ``protocol=AUTO`` (the
-        detector held the transport open after a successful probe),
-        otherwise an *unopened* :class:`Controller` to be used as an
-        async context manager.
+        An *opened* :class:`Controller` whose transport is ready for
+        :meth:`Controller.poll` / :meth:`Controller.poll_many` calls.
+        Every protocol (``STDBUS``, ``MODBUS_RTU``, ``AUTO``) returns
+        an opened controller; ``__aenter__`` is a no-op and
+        ``__aexit__`` closes the transport.
 
     Raises:
         WatlowConfigurationError: ``address`` is out of range or
@@ -126,7 +133,10 @@ async def open_device(
             port=resolved.transport.label,
             wire_temperature_unit=wire_unit,
         )
-        return Controller(session, resolved.transport, serial_settings=settings)
+        controller = Controller(session, resolved.transport, serial_settings=settings)
+        if identify:
+            await controller.identify()
+        return controller
 
     transport: Transport
     if protocol is ProtocolKind.MODBUS_RTU:
@@ -139,16 +149,19 @@ async def open_device(
         transport = ModbusBusTransport(settings)
     else:
         transport = SerialTransport(settings)
-    return await open_controller(
+    controller = await _open_controller(
         transport,
         protocol=protocol,
         address=address,
         serial_settings=settings,
         wire_temperature_unit=wire_unit,
     )
+    if identify:
+        await controller.identify()
+    return controller
 
 
-async def open_controller(
+async def _open_controller(
     transport: Transport,
     *,
     protocol: ProtocolKind,
@@ -157,21 +170,22 @@ async def open_controller(
     family: ControllerFamily = ControllerFamily.UNKNOWN,
     wire_temperature_unit: Unit | None = None,
 ) -> Controller:
-    """Build a :class:`Controller` over an existing :class:`Transport`.
+    """Build an opened :class:`Controller` over an existing :class:`Transport`.
 
-    Opens the transport if not already open. Tests use this to drive
-    the facade through a :class:`watlowlib.transport.fake.FakeTransport`.
-    Production code uses :func:`open_device`.
+    Module-private — :func:`open_device` calls this for the concrete-
+    protocol path. The testing seam at
+    :mod:`watlowlib.testing` (``open_test_controller``,
+    ``controller_from_fixture``) keeps its own fixture-friendly
+    equivalent so the test surface doesn't depend on a private symbol.
 
-    ``wire_temperature_unit`` is the already-coerced
-    :class:`watlowlib.registry.units.Unit` (or ``None``) that drives
-    :class:`Reading.unit` for temperature parameters. Test callers
-    pass it directly; :func:`open_device` derives it from its
-    ``assert_wire_temperature_unit`` kwarg.
+    Opens the transport if not already open. ``wire_temperature_unit``
+    is the already-coerced :class:`watlowlib.registry.units.Unit` (or
+    ``None``) that drives :class:`Reading.unit` for temperature
+    parameters.
     """
     if protocol is ProtocolKind.AUTO:
         raise WatlowConfigurationError(
-            "open_controller requires a concrete protocol; AUTO must be resolved by "
+            "_open_controller requires a concrete protocol; AUTO must be resolved by "
             "open_device (which runs the detector and returns a built Controller).",
             context=ErrorContext(port=transport.label),
         )

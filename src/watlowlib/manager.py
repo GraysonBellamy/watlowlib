@@ -36,7 +36,7 @@ import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 import anyio
 
@@ -62,7 +62,6 @@ from watlowlib.transport.serial import SerialTransport
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
     from types import TracebackType
-    from typing import Self
 
     from watlowlib.devices.models import Reading
     from watlowlib.registry.units import Unit
@@ -111,6 +110,16 @@ class DeviceResult[T]:
     def ok(self) -> bool:
         """``True`` when the controller produced a value (``error is None``)."""
         return self.error is None
+
+    @classmethod
+    def success(cls, value: T) -> Self:
+        """Build a success result wrapping ``value``."""
+        return cls(value=value, error=None)
+
+    @classmethod
+    def failure(cls, error: WatlowError) -> Self:
+        """Build a failure result wrapping ``error``."""
+        return cls(value=None, error=error)
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +460,7 @@ class WatlowManager:
                     reading = await entry.controller.read_pv(instance=instance)
                 except WatlowError as err:
                     async with result_lock:
-                        results[member] = DeviceResult(value=None, error=err)
+                        results[member] = DeviceResult.failure(err)
                 else:
                     async with result_lock:
                         results[member] = DeviceResult(value=reading, error=None)
@@ -550,7 +559,7 @@ class WatlowManager:
                     value = await op(controller)
                 except WatlowError as err:
                     async with result_lock:
-                        results[member] = DeviceResult(value=None, error=err)
+                        results[member] = DeviceResult.failure(err)
                         errors.append(err)
                 else:
                     async with result_lock:
@@ -697,7 +706,7 @@ class WatlowManager:
     ) -> Controller:
         """Build a :class:`Controller` against ``port_entry``'s shared client.
 
-        Mirrors :func:`watlowlib.devices.factory.open_controller` but
+        Mirrors :func:`watlowlib.devices.factory._open_controller` but
         reuses the per-port :class:`ProtocolClient` so all controllers
         on the bus share one I/O-serialising lock.
         """

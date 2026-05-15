@@ -44,7 +44,8 @@ write is recorded so tests can assert exactly what bytes the session
 produced.
 
 ```python
-from watlowlib import FakeTransport, ProtocolKind, open_controller, SerialSettings
+from watlowlib import FakeTransport, ProtocolKind, SerialSettings
+from watlowlib.testing import open_test_controller
 
 REQ_READ_PV = bytes.fromhex("55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99")
 RSP_READ_PV = bytes.fromhex(
@@ -53,7 +54,7 @@ RSP_READ_PV = bytes.fromhex(
 
 async def test_read_pv_returns_reading() -> None:
     transport = FakeTransport({REQ_READ_PV: RSP_READ_PV})
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -74,9 +75,11 @@ async def test_read_pv_returns_reading() -> None:
 - `latency_s: float` — per-op artificial delay for simulating a slow
   device.
 
-Pass the transport directly to `open_controller(transport, ...)` —
-when the first argument is a `Transport`, the factory skips serial
-setup and uses it as-is.
+Pass the transport directly to
+`watlowlib.testing.open_test_controller(transport, ...)` — when the
+first argument is a `Transport`, the helper skips serial setup and
+uses it as-is. Production code goes through `watlowlib.open_device`,
+which always opens a real port.
 
 ## `FakeSlave` — the Modbus equivalent
 
@@ -91,7 +94,7 @@ from watlowlib.testing import FakeSlave
 
 slave = FakeSlave()
 slave.add_script("read_holding_registers", 360, (17299, 29054))  # PV @ 4001
-# ... wire FakeSlave into a ModbusProtocolClient and open_controller ...
+# ... wire FakeSlave into a ModbusProtocolClient and open_test_controller ...
 ```
 
 Writes are silent successes by default and recorded on `slave.writes`
@@ -141,8 +144,8 @@ async def test_pv_round_trip() -> None:
 
 `controller_from_fixture` reads the header, builds the right transport
 (`FakeTransport` for Std Bus, `FakeSlave` for Modbus), wires it
-through `open_controller`, and returns an opened `Controller` ready
-for facade-level assertions.
+through the module-private factory, and returns an opened `Controller`
+ready for facade-level assertions.
 
 ## See also
 

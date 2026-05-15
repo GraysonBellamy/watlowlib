@@ -14,6 +14,7 @@ opens the transport on ``__aenter__`` and disposes the protocol client
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Self
 
 from watlowlib.commands.parameters import (
@@ -23,6 +24,7 @@ from watlowlib.commands.parameters import (
     WriteParameterRequest,
 )
 from watlowlib.devices._reading import reading_from_entry
+from watlowlib.devices.capability import Capability
 from watlowlib.devices.loop import ControllerLoop
 from watlowlib.devices.models import (
     DeviceHealth,
@@ -31,6 +33,7 @@ from watlowlib.devices.models import (
     PartNumber,
     Reading,
 )
+from watlowlib.devices.snapshot import WatlowDeviceSnapshot
 from watlowlib.errors import (
     WatlowProtocolError,
     WatlowTransportError,
@@ -59,7 +62,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
 
-    from watlowlib.devices.capability import Capability
     from watlowlib.devices.session import Session
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import SerialSettings, Transport
@@ -92,6 +94,10 @@ class Controller:
         # ``None`` as "no information, no gate" so calls work pre-
         # identify without surprising the user.
         self._capabilities: Capability | None = None
+        # Full cached :class:`DeviceInfo` populated by :meth:`identify`.
+        # Drives :meth:`snapshot` so no wire I/O is needed to render
+        # the controller's identity. ``None`` until identify runs.
+        self._device_info: DeviceInfo | None = None
 
     @property
     def session(self) -> Session:
@@ -427,7 +433,7 @@ class Controller:
         # never change mid-session.
         self._loops = loops
         self._capabilities = capabilities
-        return DeviceInfo(
+        info = DeviceInfo(
             part_number=part,
             hardware_id=hw_id,
             firmware_id=fw_id,
@@ -440,6 +446,52 @@ class Controller:
             loops=loops,
             health=health,
             configured_protocol=configured_protocol,
+        )
+        # Cache the full identity so :meth:`snapshot` renders without I/O.
+        self._device_info = info
+        return info
+
+    # --- Snapshot --------------------------------------------------------
+
+    async def snapshot(self, *, name: str | None = None) -> WatlowDeviceSnapshot:
+        """Return an I/O-free :class:`WatlowDeviceSnapshot`.
+
+        Built from cached identity (populated by :meth:`identify`,
+        which :func:`watlowlib.open_device` calls by default) plus
+        the session's last error and per-command availability cache.
+        Does **not** issue any reads — safe to call from monitoring
+        loops at high cadence.
+
+        Args:
+            name: Override the snapshot's ``name`` field. Defaults to
+                the controller's transport label, matching the
+                manager-assigned name surfaced into emitted samples.
+        """
+        info = self._device_info
+        model = info.part_number.raw if info is not None else None
+        firmware = (
+            str(info.firmware_id) if info is not None and info.firmware_id is not None else None
+        )
+        serial = info.serial_number if info is not None else None
+        # Snapshot is built from cached state; availability_summary is
+        # a frozen view of the session's UNSUPPORTED-marked commands.
+        availability = {
+            key: state
+            for key, state in self._session.availability_summary().items()
+            if state.name == "UNSUPPORTED"
+        }
+        return WatlowDeviceSnapshot(
+            name=name if name is not None else self._transport.label,
+            model=model,
+            firmware=firmware,
+            serial=serial,
+            connected=self._transport.is_open,
+            last_error=self._session.last_error,
+            recoverable_error_count=self._session.recoverable_error_count,
+            captured_at=datetime.now(UTC),
+            family=info.family if info is not None else None,
+            capabilities=self._capabilities if self._capabilities is not None else Capability.NONE,
+            availability_summary=availability,
         )
 
     # --- Internals ------------------------------------------------------

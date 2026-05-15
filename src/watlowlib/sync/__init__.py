@@ -27,7 +27,7 @@ from __future__ import annotations
 from watlowlib.sync.controller import SyncController, SyncControllerLoop, Watlow
 from watlowlib.sync.manager import SyncWatlowManager
 from watlowlib.sync.portal import SyncAsyncIterator, SyncPortal, run_sync
-from watlowlib.sync.recording import pipe, record
+from watlowlib.sync.recording import SyncRecording, pipe, record
 from watlowlib.sync.sinks import (
     SyncCsvSink,
     SyncInMemorySink,
@@ -48,6 +48,7 @@ __all__ = [
     "SyncParquetSink",
     "SyncPortal",
     "SyncPostgresSink",
+    "SyncRecording",
     "SyncSinkAdapter",
     "SyncSqliteSink",
     "SyncWatlowManager",

@@ -12,10 +12,12 @@ Design reference: ``docs/design.md`` §6.
 
 from __future__ import annotations
 
+from watlowlib.streaming.adapter import PollSourceAdapter
 from watlowlib.streaming.recorder import (
     AcquisitionSummary,
     OverflowPolicy,
     PollSource,
+    Recording,
     record,
 )
 from watlowlib.streaming.sample import Sample
@@ -24,6 +26,8 @@ __all__ = [
     "AcquisitionSummary",
     "OverflowPolicy",
     "PollSource",
+    "PollSourceAdapter",
+    "Recording",
     "Sample",
     "record",
 ]

@@ -90,9 +90,10 @@ from typing import TYPE_CHECKING, Any
 from anyserial import Parity
 
 from watlowlib.devices.controller import Controller
-from watlowlib.devices.factory import open_controller
 from watlowlib.devices.session import Session
+from watlowlib.errors import ErrorContext, WatlowConfigurationError
 from watlowlib.protocol.base import ProtocolKind
+from watlowlib.protocol.client import make_protocol_client
 from watlowlib.protocol.modbus.client import ModbusProtocolClient
 from watlowlib.registry.families import ControllerFamily
 from watlowlib.registry.parameters import PARAMETERS
@@ -102,6 +103,7 @@ from watlowlib.transport.fake import FakeSlave, FakeTransport
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from watlowlib.registry.units import Unit
     from watlowlib.transport.base import Transport
 
 __all__ = [
@@ -113,8 +115,56 @@ __all__ = [
     "StdBusRound",
     "controller_from_fixture",
     "load_fixture",
+    "open_test_controller",
     "parse_arrow_fixture",
 ]
+
+
+async def open_test_controller(
+    transport: Transport,
+    *,
+    protocol: ProtocolKind = ProtocolKind.STDBUS,
+    address: int = 1,
+    serial_settings: SerialSettings | None = None,
+    family: ControllerFamily = ControllerFamily.UNKNOWN,
+    wire_temperature_unit: Unit | None = None,
+) -> Controller:
+    """Build an opened :class:`Controller` over an existing :class:`Transport`.
+
+    Test-surface companion to :func:`watlowlib.open_device`. Production
+    code always goes through :func:`open_device` (which opens a real
+    serial port and runs auto-detect when asked); tests drive the
+    facade through a :class:`FakeTransport` and use this helper to
+    skip the serial-port plumbing.
+
+    Args:
+        transport: The transport to wire the controller to. Typically
+            a :class:`FakeTransport` scripted with captured round-
+            trips.
+        protocol: Wire protocol. ``AUTO`` is rejected — auto-detection
+            is a real-port-only path on :func:`open_device`.
+        address: Bus address.
+        serial_settings: Optional override; defaults to a
+            ``fake://test`` placeholder so call sites that don't care
+            about framing stay terse.
+        family: Best-known :class:`ControllerFamily` prior.
+        wire_temperature_unit: Already-coerced :class:`Unit` to drive
+            :class:`Reading.unit` / :class:`Sample.unit` for
+            temperature parameters. Tests usually leave this ``None``.
+
+    Returns:
+        An opened :class:`Controller`. The caller is responsible for
+        closing it (typically via ``async with``).
+    """
+    settings = serial_settings or SerialSettings(port=transport.label)
+    return await _open_fixture_controller(
+        transport,
+        protocol=protocol,
+        address=address,
+        serial_settings=settings,
+        family=family,
+        wire_temperature_unit=wire_temperature_unit,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +303,7 @@ async def controller_from_fixture(
     fixture = load_fixture(path)
     if fixture.protocol is ProtocolKind.STDBUS:
         transport: Transport = fixture.fake_transport()
-        return await open_controller(
+        return await _open_fixture_controller(
             transport,
             protocol=ProtocolKind.STDBUS,
             address=fixture.address,
@@ -282,6 +332,36 @@ async def controller_from_fixture(
 
 
 # --- internals -------------------------------------------------------
+
+
+async def _open_fixture_controller(
+    transport: Transport,
+    *,
+    protocol: ProtocolKind,
+    address: int,
+    serial_settings: SerialSettings,
+    family: ControllerFamily = ControllerFamily.UNKNOWN,
+    wire_temperature_unit: Unit | None = None,
+) -> Controller:
+    """Build an opened controller over a test transport."""
+    if protocol is ProtocolKind.AUTO:
+        raise WatlowConfigurationError(
+            "open_test_controller requires a concrete protocol; AUTO must be resolved "
+            "through open_device against a real serial port.",
+            context=ErrorContext(port=transport.label),
+        )
+    if not transport.is_open:
+        await transport.open()
+    client = make_protocol_client(protocol, transport)
+    session = Session(
+        client,
+        registry=PARAMETERS,
+        family=family,
+        address=address,
+        port=transport.label,
+        wire_temperature_unit=wire_temperature_unit,
+    )
+    return Controller(session, transport, serial_settings=serial_settings)
 
 
 def _resolve_protocol(

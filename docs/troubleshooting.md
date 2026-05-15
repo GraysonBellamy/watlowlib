@@ -34,7 +34,8 @@ async with await open_device(
 
 # Auto — Std Bus probe → Modbus probe → fail.
 async with await open_device("/dev/ttyUSB0", protocol=ProtocolKind.AUTO) as ctl:
-    print(ctl.session.protocol, ctl.info.part_number.raw)
+    snap = await ctl.snapshot()
+    print(ctl.session.protocol_kind, snap.model)
 ```
 
 `AUTO` is conservative: it never sweeps baud or parity. Wider port
@@ -60,7 +61,7 @@ watlow-discover --port /dev/ttyUSB0 --protocol modbus_rtu --baud 9600
 ```
 
 Probes the cartesian product of ports × bauds × protocols × addresses
-and prints one [`FindResult`](api/devices.md) per probe attempt. With
+and prints one [`DiscoveryResult`](api/devices.md) per probe attempt. With
 no `--port` flag the CLI enumerates every visible serial port via
 `anyserial`; defaults hit address `1` at `38400 / 19200 / 9600` on
 both protocols, so a typical four-port rig is scanned in under 15

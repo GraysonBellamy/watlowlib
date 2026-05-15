@@ -16,19 +16,20 @@ from watlowlib.devices.discovery import (
     DEFAULT_DISCOVERY_PROTOCOLS,
     find_devices,
 )
-from watlowlib.devices.factory import open_controller, open_device
+from watlowlib.devices.factory import open_device
 from watlowlib.devices.kind import ControllerFamily, classify_family
 from watlowlib.devices.loop import ControllerLoop
 from watlowlib.devices.models import (
     AlarmState,
     DeviceInfo,
-    FindResult,
+    DiscoveryResult,
     LoopState,
     ParameterEntry,
     PartNumber,
     Reading,
 )
 from watlowlib.devices.session import Session
+from watlowlib.devices.snapshot import DeviceSnapshot, WatlowDeviceSnapshot
 
 __all__ = [
     "DEFAULT_DISCOVERY_ADDRESSES",
@@ -41,15 +42,16 @@ __all__ = [
     "ControllerFamily",
     "ControllerLoop",
     "DeviceInfo",
-    "FindResult",
+    "DeviceSnapshot",
+    "DiscoveryResult",
     "LoopState",
     "ParameterEntry",
     "PartNumber",
     "Reading",
     "SafetyTier",
     "Session",
+    "WatlowDeviceSnapshot",
     "classify_family",
     "find_devices",
-    "open_controller",
     "open_device",
 ]

@@ -122,8 +122,9 @@ def sample_to_row(sample: Sample) -> dict[str, float | int | str | bool | None]:
       for Watlow rows, a free-form string for cross-vendor rows
       (``"psia"``, ``"sccm"``, ...), or ``None`` when the parameter has
       no unit.
-    - ``requested_at`` / ``received_at`` / ``midpoint_at`` — ISO 8601
-      strings.
+    - ``t_mono_ns`` — monotonic-ns canonical join key.
+    - ``t_utc`` — wall-clock acquisition midpoint, ISO 8601 string.
+    - ``requested_at`` / ``received_at`` — ISO 8601 strings.
     - ``latency_s`` — poll round-trip in seconds.
 
     The sample's ``raw`` payload is intentionally **not** in the row:
@@ -153,9 +154,10 @@ def sample_to_row(sample: Sample) -> dict[str, float | int | str | bool | None]:
         "instance": sample.instance,
         "value": coerced,
         "unit": unit,
+        "t_mono_ns": sample.t_mono_ns,
+        "t_utc": sample.t_utc.isoformat(),
         "requested_at": sample.requested_at.isoformat(),
         "received_at": sample.received_at.isoformat(),
-        "midpoint_at": sample.midpoint_at.isoformat(),
         "latency_s": sample.latency_s,
     }
 
@@ -246,6 +248,4 @@ async def pipe(
         started_at=started_at,
         finished_at=finished_at,
         samples_emitted=emitted,
-        samples_late=0,
-        max_drift_ms=0.0,
     )

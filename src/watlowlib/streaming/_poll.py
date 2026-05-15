@@ -98,9 +98,9 @@ async def poll_controller(
                     continue
                 received_at = datetime.now(UTC)
                 recv_ns = time.monotonic_ns()
-                mono = (sent_ns + recv_ns) // 2
+                t_mono_ns = (sent_ns + recv_ns) // 2
                 latency_s = (received_at - requested_at).total_seconds()
-                midpoint = requested_at + (received_at - requested_at) / 2
+                t_utc = requested_at + (received_at - requested_at) / 2
                 samples.append(
                     Sample(
                         device=name,
@@ -111,10 +111,11 @@ async def poll_controller(
                         instance=instance,
                         value=entry.value,
                         unit=unit,
-                        monotonic_ns=mono,
+                        t_mono_ns=t_mono_ns,
+                        t_utc=t_utc,
+                        t_midpoint_mono_ns=None,
                         requested_at=requested_at,
                         received_at=received_at,
-                        midpoint_at=midpoint,
                         latency_s=latency_s,
                         raw=entry.raw,
                     ),

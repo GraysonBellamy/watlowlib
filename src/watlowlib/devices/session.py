@@ -28,6 +28,7 @@ Variant signatures differ across protocols (see
 from __future__ import annotations
 
 import time
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from watlowlib._lock import maybe_acquire
@@ -49,6 +50,8 @@ from watlowlib.protocol.base import ProtocolKind
 from watlowlib.registry.units import Unit, unit_from_display_code
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from watlowlib.commands.base import Command
     from watlowlib.protocol.base import ProtocolClient
     from watlowlib.registry.families import ControllerFamily
@@ -100,6 +103,17 @@ class Session:
         # calls don't repeat the wire turn-around after a rejection.
         self._comms_unit_label: Unit | None = None
         self._comms_unit_label_loaded: bool = False
+        # Most recent error's :class:`ErrorContext`, captured from any
+        # :class:`WatlowError` that propagates out of :meth:`execute`.
+        # Drives :class:`DeviceSnapshot.last_error`. Cleared by
+        # :meth:`clear_last_error` (manual reset for diagnostics).
+        self._last_error: ErrorContext | None = None
+        # Count of transient transport hiccups the session swallowed
+        # and retried. Watlow has no current transient class (§F of
+        # the unified spec — deferred), so this counter stays at zero
+        # unless a future transport path increments it. Reset on
+        # :meth:`open` / fresh transport.
+        self.recoverable_error_count: int = 0
 
     @property
     def protocol_kind(self) -> ProtocolKind:
@@ -152,6 +166,27 @@ class Session:
     def availability(self, command_name: str) -> Availability:
         """Cached availability for ``command_name``."""
         return self._availability.get(command_name, Availability.UNKNOWN)
+
+    def availability_summary(self) -> Mapping[str, Availability]:
+        """Return the current command availability cache.
+
+        Includes every command the session has dispatched; the
+        snapshot path filters to the UNSUPPORTED entries.
+        """
+        return MappingProxyType(dict(self._availability))
+
+    @property
+    def last_error(self) -> ErrorContext | None:
+        """Most-recent error context captured by :meth:`execute`."""
+        return self._last_error
+
+    def clear_last_error(self) -> None:
+        """Reset :attr:`last_error` to ``None`` (manual diagnostics aid)."""
+        self._last_error = None
+
+    def _record_error(self, exc: WatlowError) -> None:
+        """Remember ``exc.context`` as the most-recent error."""
+        self._last_error = exc.context
 
     async def execute[Req, Resp](
         self,
@@ -262,6 +297,7 @@ class Session:
                 WatlowProtocolUnsupportedError,
             ) as exc:
                 self._availability[cache_key] = Availability.UNSUPPORTED
+                self._record_error(exc)
                 _log.warning(
                     "command unsupported: protocol=%s cmd=%s key=%s exc=%s",
                     kind.value,
@@ -270,9 +306,11 @@ class Session:
                     exc,
                 )
                 raise
-            except WatlowProtocolError:
+            except WatlowProtocolError as exc:
+                self._record_error(exc)
                 raise
             except WatlowError as exc:
+                self._record_error(exc)
                 _log.warning(
                     "command error: protocol=%s cmd=%s key=%s exc=%s",
                     kind.value,
@@ -298,6 +336,7 @@ class Session:
             # Decode-side "we don't have this": same availability
             # transition as the wire-side rejection above.
             self._availability[cache_key] = Availability.UNSUPPORTED
+            self._record_error(exc)
             _log.warning(
                 "command unsupported: protocol=%s cmd=%s key=%s exc=%s",
                 kind.value,
@@ -306,10 +345,11 @@ class Session:
                 exc,
             )
             raise
-        except WatlowProtocolError:
+        except WatlowProtocolError as exc:
             # Decode-failure parity with the inside-lock branch above:
             # NoSuchInstance / IllegalDataValue / generic decode errors
             # don't transition availability per design §5b.
+            self._record_error(exc)
             raise
 
         elapsed = time.monotonic() - started

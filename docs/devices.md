@@ -260,7 +260,7 @@ be hard-coded once and reused.
 
 [`find_devices()`](../src/watlowlib/devices/discovery.py) probes the
 cartesian product of `ports × baudrates × protocols × addresses` and
-returns one [`FindResult`](api/devices.md) per probe attempt. The
+returns one [`DiscoveryResult`](api/devices.md) per probe attempt. The
 default scan is narrow — every visible serial port (via
 `anyserial.list_serial_ports`), bauds `38400 / 19200 / 9600`, both
 Watlow protocols, address `1` only — so a GUI Discover dialog can ask
@@ -276,11 +276,11 @@ rows = await find_devices(addresses=range(1, 17))  # multi-drop sweep
 for row in rows:
     if row.ok:
         print(row.port, row.baudrate, row.protocol.value,
-              row.address, row.info.part_number.raw)
+              row.address, row.device_info.part_number.raw)
 ```
 
 A row's `ok` field is the single attribute callers filter on:
-populated `info` and `error is None` ⇔ `ok is True`. Silent /
+populated `device_info` and `error is None` ⇔ `ok is True`. Silent /
 absent addresses surface as `ok=False` rows carrying a typed
 `WatlowError` so callers can distinguish "port wouldn't open" from
 "no reply at this address".

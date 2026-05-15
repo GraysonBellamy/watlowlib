@@ -1,8 +1,11 @@
 """Sync wrappers for :func:`watlowlib.streaming.record` and :func:`watlowlib.sinks.pipe`.
 
-:func:`record` — sync context manager wrapping the async recorder. The
-produced iterator is blocking; on CM exit the underlying async task
-group is cancelled and joined by the portal.
+:func:`record` — sync context manager wrapping the async recorder.
+Yields a :class:`SyncRecording` exposing ``.stream`` (blocking
+iterator), ``.summary`` (live :class:`AcquisitionSummary` mutated by
+the async producer; consumers treat it as read-only), and
+``.rate_hz``. On CM exit the underlying async task group is cancelled
+and joined by the portal, and ``summary.finished_at`` is populated.
 
 :func:`pipe` — sync drain loop matching
 :func:`watlowlib.sinks.pipe`'s batch / time flush semantics.
@@ -17,6 +20,7 @@ from __future__ import annotations
 
 import time
 from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -42,9 +46,33 @@ if TYPE_CHECKING:
 __all__ = [
     "AcquisitionSummary",
     "OverflowPolicy",
+    "SyncRecording",
     "pipe",
     "record",
 ]
+
+
+@dataclass(slots=True)
+class SyncRecording:
+    """Sync mirror of :class:`watlowlib.streaming.Recording`.
+
+    The async producer owns ``summary``; reading the mutable
+    dataclass attributes from the calling thread is safe — attribute
+    reads on a plain Python dataclass are atomic, and the recorder is
+    the only writer.
+
+    Attributes:
+        stream: Blocking iterator over per-tick :class:`Sample`
+            batches. Iterating drives the async receive stream via
+            the portal.
+        summary: Live :class:`AcquisitionSummary`. ``finished_at`` is
+            ``None`` while running and set on CM exit.
+        rate_hz: The cadence the recorder is running at.
+    """
+
+    stream: Iterator[Sequence[Sample]]
+    summary: AcquisitionSummary
+    rate_hz: float
 
 
 def _resolve_poll_source(
@@ -89,8 +117,12 @@ def record(
     overflow: OverflowPolicy = OverflowPolicy.BLOCK,
     buffer_size: int = 64,
     portal: SyncPortal | None = None,
-) -> Generator[Iterator[Sequence[Sample]]]:
+) -> Generator[SyncRecording]:
     """Sync :func:`watlowlib.streaming.record`.
+
+    Yields a :class:`SyncRecording` — iterate ``recording.stream``
+    for per-tick batches, read ``recording.summary`` for live
+    counters, ``recording.rate_hz`` for the running rate.
 
     If ``source`` is a :class:`SyncWatlowManager`, its portal is
     reused — the recorder and manager must share an event loop. Pass
@@ -109,9 +141,13 @@ def record(
             overflow=overflow,
             buffer_size=buffer_size,
         )
-        async_stream = stack.enter_context(active_portal.wrap_async_context_manager(async_cm))
-        sync_iter = stack.enter_context(active_portal.wrap_async_iter(async_stream))
-        yield sync_iter
+        async_recording = stack.enter_context(active_portal.wrap_async_context_manager(async_cm))
+        sync_iter = stack.enter_context(active_portal.wrap_async_iter(async_recording.stream))
+        yield SyncRecording(
+            stream=sync_iter,
+            summary=async_recording.summary,
+            rate_hz=async_recording.rate_hz,
+        )
 
 
 def pipe(
@@ -169,8 +205,6 @@ def pipe(
         started_at=started_at,
         finished_at=finished_at,
         samples_emitted=emitted,
-        samples_late=0,
-        max_drift_ms=0.0,
     )
 
 

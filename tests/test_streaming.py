@@ -15,11 +15,11 @@ from watlowlib import (
     ProtocolKind,
     Sample,
     SerialSettings,
-    open_controller,
     record,
 )
 from watlowlib._lock import maybe_acquire
 from watlowlib.streaming.recorder import _tick_percentiles  # pyright: ignore[reportPrivateUsage]
+from watlowlib.testing import open_test_controller
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -58,10 +58,11 @@ def test_sample_is_frozen_and_slotted() -> None:
         instance=1,
         value=72.4,
         unit=None,
-        monotonic_ns=12345,
+        t_mono_ns=12345,
+        t_utc=now,
+        t_midpoint_mono_ns=None,
         requested_at=now,
         received_at=now,
-        midpoint_at=now,
         latency_s=0.001,
         raw=b"\x00",
     )
@@ -82,7 +83,7 @@ async def test_controller_poll_returns_samples(anyio_backend: object) -> None:
     _ = anyio_backend
     transport = FakeTransport(_pv_script())
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -109,7 +110,7 @@ async def test_controller_poll_drops_unknown_parameter(anyio_backend: object) ->
     _ = anyio_backend
     transport = FakeTransport(_pv_script())
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -160,10 +161,11 @@ def _stub_sample() -> Sample:
         instance=1,
         value=72.4,
         unit=None,
-        monotonic_ns=0,
+        t_mono_ns=0,
+        t_utc=now,
+        t_midpoint_mono_ns=None,
         requested_at=now,
         received_at=now,
-        midpoint_at=now,
         latency_s=0.0,
         raw=b"",
     )
@@ -178,8 +180,8 @@ async def test_record_emits_n_batches(anyio_backend: object) -> None:
         parameters=["process_value"],
         rate_hz=50.0,
         duration=0.06,  # ~3 ticks at 50 Hz
-    ) as stream:
-        batches: list[int] = [len(batch) async for batch in stream]
+    ) as recording:
+        batches: list[int] = [len(batch) async for batch in recording.stream]
     assert source.call_count >= 2
     assert all(n == 1 for n in batches)
 
@@ -194,8 +196,8 @@ async def test_record_cancellation_drains(anyio_backend: object) -> None:
         source,
         parameters=["process_value"],
         rate_hz=20.0,
-    ) as stream:
-        async for _batch in stream:
+    ) as recording:
+        async for _batch in recording.stream:
             iters += 1
             if iters >= 2:
                 break
@@ -240,9 +242,9 @@ async def test_record_drop_newest_when_consumer_blocks(anyio_backend: object) ->
         duration=0.05,
         overflow=OverflowPolicy.DROP_NEWEST,
         buffer_size=1,
-    ) as stream:
+    ) as recording:
         # Drain slowly — under DROP_NEWEST extra batches should be discarded.
-        async for batch in stream:
+        async for batch in recording.stream:
             received.append(len(batch))
             await anyio.sleep(0.02)
     # Source was invoked more times than we received batches — the
@@ -263,10 +265,10 @@ async def test_record_drop_oldest_when_consumer_blocks(anyio_backend: object) ->
         duration=0.05,
         overflow=OverflowPolicy.DROP_OLDEST,
         buffer_size=1,
-    ) as stream:
+    ) as recording:
         # Drain slowly — under DROP_OLDEST stale batches get evicted in
         # favour of the latest reading. The consumer never blocks.
-        async for batch in stream:
+        async for batch in recording.stream:
             received.append(len(batch))
             await anyio.sleep(0.02)
     # Source was invoked more times than we received — extra batches
@@ -337,7 +339,7 @@ async def test_session_execute_reuses_held_lock(anyio_backend: object) -> None:
     _ = anyio_backend
     transport = FakeTransport(_pv_script())
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -365,7 +367,7 @@ async def test_poll_many_holds_lock_atomically(anyio_backend: object) -> None:
     _ = anyio_backend
     transport = FakeTransport(_pv_sp_script(), latency_s=0.02)
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -446,8 +448,8 @@ async def test_record_summary_logs_tick_duration_metrics(
         parameters=["process_value"],
         rate_hz=50.0,
         duration=0.06,
-    ) as stream:
-        async for _batch in stream:
+    ) as recording:
+        async for _batch in recording.stream:
             pass
 
     stop_lines = [r for r in caplog.records if "recorder.stop" in r.getMessage()]
@@ -498,8 +500,8 @@ async def test_record_tick_durations_track_real_work(
         parameters=["process_value"],
         rate_hz=10.0,
         duration=0.5,
-    ) as stream:
-        async for _batch in stream:
+    ) as recording:
+        async for _batch in recording.stream:
             pass
 
     stop_lines = [r for r in caplog.records if "recorder.stop" in r.getMessage()]

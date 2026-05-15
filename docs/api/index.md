@@ -10,9 +10,13 @@ section here.
 ## Top-level
 
 - [`watlowlib`](watlowlib.md) — top-level re-exports
-  (`open_device`, `open_controller`, `WatlowManager`, `record`,
-  `pipe`, the typed error hierarchy, the parameter registry,
-  `ProtocolKind`, `ControllerFamily`, `Capability`, `SafetyTier`, …).
+  (`open_device`, `find_devices`, `WatlowManager`, `record`,
+  `Recording`, `PollSourceAdapter`, `DiscoveryResult`,
+  `DeviceSnapshot`, `WatlowDeviceSnapshot`, `pipe`, the typed error
+  hierarchy, the parameter registry, `ProtocolKind`,
+  `ControllerFamily`, `Capability`, `SafetyTier`, …).
+- [`watlowlib.units`](units.md) — `to_pint(unit)` lossy mapping to
+  pint-compatible unit strings.
 
 ## Subpackages
 
@@ -25,8 +29,9 @@ section here.
   catalogue.
 - [`watlowlib.devices`](devices.md) — `Controller`, `Session`, models
   (`Reading`, `DeviceInfo`, `PartNumber`, `AlarmState`, `LoopState`,
-  …), `ControllerFamily`, `Capability`, `SafetyTier`, `open_device`,
-  `open_controller`, discovery helpers.
+  `DiscoveryResult`, `DeviceSnapshot`, `WatlowDeviceSnapshot`, …),
+  `ControllerFamily`, `Capability`, `SafetyTier`, `open_device`,
+  discovery helpers.
 - [`watlowlib.manager`](manager.md) — `WatlowManager`, `DeviceResult`,
   `ErrorPolicy`.
 - [`watlowlib.streaming`](streaming.md) — `Sample`, `record()`,

@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from watlowlib.devices.capability import Capability
+    from watlowlib.errors import WatlowError
     from watlowlib.protocol.base import ProtocolKind
     from watlowlib.registry.families import ControllerFamily
     from watlowlib.registry.parameters import ParameterSpec
@@ -26,7 +27,7 @@ __all__ = [
     "AlarmState",
     "DeviceHealth",
     "DeviceInfo",
-    "FindResult",
+    "DiscoveryResult",
     "LoopState",
     "ParameterEntry",
     "PartNumber",
@@ -172,28 +173,32 @@ class DeviceInfo:
 
 
 @dataclass(frozen=True, slots=True)
-class FindResult:
+class DiscoveryResult:
     """One probe attempt's outcome from :func:`find_devices`.
 
-    Mirrors the alicat / sartorius ecosystem shape: a flat
-    :attr:`baudrate` and an explicit :attr:`ok` flag so GUI Discover
-    dialogs and ``capa``-style adapters can filter responsive vs
-    silent rows on a single attribute.
+    Cross-library shape (mirrors :mod:`alicatlib`, :mod:`sartoriuslib`,
+    :mod:`nidaqlib`) so GUI Discover dialogs and ``capa``-style
+    adapters can filter responsive vs silent rows on a single
+    attribute and consume the same field set across vendors.
 
-    A populated :attr:`info` carries the full
+    A populated :attr:`device_info` carries the full
     :class:`Controller.identify` result, including
     :attr:`DeviceInfo.health` and (when the scan queried it)
     :attr:`DeviceInfo.configured_protocol`.
+
+    The ``address`` field is typed ``str | int | None`` to match the
+    cross-library spec; in practice every watlow probe carries an
+    ``int``.
     """
 
-    port: str
-    address: int
-    baudrate: int
-    protocol: ProtocolKind
     ok: bool
-    info: DeviceInfo | None = None
-    # ``WatlowError``; typed as object to avoid the import cycle with
-    # :mod:`watlowlib.errors`. Callers can ``isinstance`` against the
-    # concrete subclass when they need to distinguish "port wouldn't
-    # open" from "no reply at this address".
-    error: object | None = None
+    port: str
+    address: str | int | None
+    baudrate: int | None
+    protocol: ProtocolKind | None
+    device_info: DeviceInfo | None
+    # Concrete ``WatlowError``; ``None`` on success. Callers
+    # ``isinstance`` against the concrete subclass when they need to
+    # distinguish "port wouldn't open" from "no reply at this address".
+    error: WatlowError | None
+    elapsed_s: float

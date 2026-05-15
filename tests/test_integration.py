@@ -1,6 +1,6 @@
 """End-to-end facade tests via :class:`FakeTransport`.
 
-Drives the full ``open_controller → identify → read_pv → set_setpoint
+Drives the full ``open_test_controller → identify → read_pv → set_setpoint
 → read_setpoint`` flow against scripted PM3 captures. Asserts the
 session-level invariants:
 
@@ -27,9 +27,9 @@ from watlowlib import (
     WatlowConfirmationRequiredError,
     WatlowNoSuchObjectError,
     WatlowValidationError,
-    open_controller,
 )
 from watlowlib.protocol.stdbus.framing import Frame, encode_frame
+from watlowlib.testing import open_test_controller
 
 # ---- captured PM3 round-trips ------------------------------------------
 
@@ -75,7 +75,7 @@ async def test_facade_round_trip(anyio_backend: object) -> None:
     _ = anyio_backend
     transport = FakeTransport(_build_script())
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -112,7 +112,7 @@ async def test_facade_identify(anyio_backend: object) -> None:
     _ = anyio_backend
     transport = FakeTransport(_build_script())
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -144,7 +144,7 @@ async def test_unsupported_object_marks_availability(anyio_backend: object) -> N
     )
     transport = FakeTransport({REQ_READ_PV: err_reply})
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -172,8 +172,8 @@ async def test_unsupported_object_marks_availability(anyio_backend: object) -> N
 # least one PM3 firmware revision 17050 is a label-only register that
 # does not govern the wire scale; trusting it silently mis-tags values.
 # Temperature readings carry ``unit=None`` unless the caller passes
-# ``assert_wire_temperature_unit=`` to ``open_device`` /
-# ``open_controller`` — an explicit, externally-verified user assertion.
+# ``assert_wire_temperature_unit=`` to ``open_device`` — an explicit,
+# externally-verified user assertion.
 #
 # Parameter 17050 is still reachable through the inspection facade
 # (``read_comms_unit_label`` / ``set_comms_unit_label``) but that path
@@ -208,7 +208,7 @@ async def _open_stdbus(
 
     transport = FakeTransport(script)
     settings = SerialSettings(port="fake://test")
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         Reading,
     )
     from watlowlib.devices.session import Session
+    from watlowlib.devices.snapshot import WatlowDeviceSnapshot
     from watlowlib.registry.units import Unit
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import SerialSettings
@@ -139,6 +140,10 @@ class SyncController:
     def identify(self, *, timeout: float | None = None) -> DeviceInfo:
         """Blocking :meth:`Controller.identify`."""
         return self._portal.call(self._ctl.identify, timeout=timeout)
+
+    def snapshot(self, *, name: str | None = None) -> WatlowDeviceSnapshot:
+        """Blocking :meth:`Controller.snapshot`."""
+        return self._portal.call(self._ctl.snapshot, name=name)
 
     # ------------------------------------------------------------------ generic parameter
 
@@ -288,6 +293,7 @@ class Watlow:
         address: int = 1,
         serial_settings: SerialSettings | None = None,
         assert_wire_temperature_unit: Unit | str | None = None,
+        identify: bool = True,
         portal: SyncPortal | None = None,
     ) -> Generator[SyncController]:
         """Open a sync :class:`SyncController` scoped to a ``with`` block.
@@ -308,6 +314,7 @@ class Watlow:
                 address=address,
                 serial_settings=serial_settings,
                 assert_wire_temperature_unit=assert_wire_temperature_unit,
+                identify=identify,
             )
             # ``open_device`` returns a controller that may or may not
             # already be open: AUTO returned by the detector is open;

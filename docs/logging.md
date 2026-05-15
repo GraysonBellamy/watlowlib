@@ -67,10 +67,11 @@ parameter read with timing provenance.
 | `instance`       | 1-indexed loop / channel selector. |
 | `value`          | Decoded scalar, or `None` on sensor-fail / overload. |
 | `unit`           | Display string for the unit, or `None` (v1 leaves this `None` for every PM parameter — the registry doesn't carry per-row units yet). |
-| `monotonic_ns`   | `time.monotonic_ns` at the read site (drift analysis only). |
+| `t_mono_ns`      | `time.monotonic_ns` midpoint of the round-trip. Canonical join key across streams. |
+| `t_utc`          | `(requested_at + received_at) / 2` — preferred timestamp for plots, tz-aware UTC. |
+| `t_midpoint_mono_ns` | Optional integration-window midpoint in monotonic ns. `None` for single polled reads. |
 | `requested_at`   | UTC `datetime` just before the read leaves the host. |
 | `received_at`    | UTC `datetime` just after the reply is decoded. |
-| `midpoint_at`    | `(requested_at + received_at) / 2` — preferred timestamp for plots. |
 | `latency_s`      | Poll round-trip seconds (precomputed). |
 | `raw`            | Wire payload that produced the value. Tabular sinks drop it. |
 
@@ -149,7 +150,9 @@ success / error rows don't reshape the file.
 | `instance`     | int                 | 1-indexed loop / channel selector. |
 | `value`        | float \| int \| str \| null | Coerced from `Sample.value`. Bools become `"true"`/`"false"` strings so SQLite type inference doesn't pin the column to INTEGER. |
 | `unit`         | str \| null         | Display unit; v1 emits `None` for every PM parameter. |
-| `requested_at` / `received_at` / `midpoint_at` | str (ISO 8601) | Wall-clock timing per read. |
+| `t_mono_ns`    | int                 | Monotonic-ns join key. |
+| `t_utc`        | str (ISO 8601)      | Acquisition-instant wall clock. |
+| `requested_at` / `received_at` | str (ISO 8601) | I/O provenance per read. |
 | `latency_s`    | float               | Poll round-trip seconds. |
 
 The `Sample.raw` payload is intentionally **not** in the row — bytes

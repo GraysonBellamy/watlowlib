@@ -2,9 +2,9 @@
 
 :func:`find_devices` is the single discovery entry point. It walks the
 cartesian product of ``ports × baudrates × protocols × addresses`` and
-returns one :class:`FindResult` per probe attempt — mirroring the
-``alicatlib.find_devices`` / ``sartoriuslib.discover_port`` ecosystem
-shape so a GUI Discover dialog can filter on a single ``ok`` flag.
+returns one :class:`DiscoveryResult` per probe attempt — same shape
+the sibling libraries (alicat, sartorius, nidaq) emit, so a GUI
+Discover dialog can filter on a single ``ok`` flag.
 
 The scan is **read-only**: every probe is a bounded
 :meth:`Controller.identify` call. No setpoint writes, no parameter
@@ -20,7 +20,7 @@ probe on Linux for no benefit.
 
 If a port fails to open at all, it is marked dead for the rest of the
 scan: every subsequent (baudrate × protocol) combination for that
-port short-circuits with a single :class:`FindResult` per planned
+port short-circuits with a single :class:`DiscoveryResult` per planned
 address carrying the open error. This avoids hammering a port that
 ``anyserial`` listed but the kernel won't let us touch.
 
@@ -42,6 +42,7 @@ The default scan is narrow on purpose:
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -49,7 +50,7 @@ import anyio
 
 from watlowlib._logging import get_logger
 from watlowlib.devices.controller import Controller
-from watlowlib.devices.models import FindResult
+from watlowlib.devices.models import DiscoveryResult
 from watlowlib.devices.session import Session
 from watlowlib.errors import (
     ErrorContext,
@@ -110,7 +111,7 @@ async def find_devices(
     protocols: Sequence[ProtocolKind] | None = None,
     serial_template: SerialSettings | None = None,
     per_probe_timeout_s: float = _DEFAULT_PROBE_TIMEOUT_S,
-) -> list[FindResult]:
+) -> list[DiscoveryResult]:
     """Probe local serial ports for Watlow controllers.
 
     Args:
@@ -141,7 +142,7 @@ async def find_devices(
             ~12 s of wall-clock.
 
     Returns:
-        One :class:`FindResult` per (port × baudrate × protocol ×
+        One :class:`DiscoveryResult` per (port × baudrate × protocol ×
         address) tuple, in input order. The cartesian product is
         iterated outermost-port, then baudrate, then protocol, then
         address — same input → same output ordering.
@@ -182,7 +183,7 @@ async def find_devices(
             "API on open_device.",
         )
 
-    results: list[FindResult] = []
+    results: list[DiscoveryResult] = []
     dead_ports: set[str] = set()
     for port in resolved_ports:
         for baud in resolved_baudrates:
@@ -199,14 +200,15 @@ async def find_devices(
                         ),
                     )
                     results.extend(
-                        FindResult(
+                        DiscoveryResult(
+                            ok=False,
                             port=port,
                             address=address,
                             baudrate=baud,
                             protocol=protocol,
-                            ok=False,
-                            info=None,
+                            device_info=None,
                             error=error,
+                            elapsed_s=0.0,
                         )
                         for address in resolved_addresses
                     )
@@ -303,7 +305,7 @@ async def _probe_combo(
     addresses: Sequence[int],
     serial_settings: SerialSettings,
     timeout_s: float,
-) -> tuple[list[FindResult], bool]:
+) -> tuple[list[DiscoveryResult], bool]:
     """Open one (port, baudrate, protocol) transport and probe every address.
 
     Returns ``(rows, port_died)`` where ``port_died`` is ``True`` when
@@ -311,22 +313,25 @@ async def _probe_combo(
     rest of the scan for this port.
     """
     transport = _build_transport(protocol, serial_settings)
-    rows: list[FindResult] = []
+    rows: list[DiscoveryResult] = []
+    open_started = time.monotonic()
     try:
         await transport.open()
     except WatlowConnectionError as exc:
         # The port itself isn't usable — every address probe would
         # fail the same way; emit a row per planned address keyed to
         # the open error and tell the caller this port is dead.
+        open_elapsed = time.monotonic() - open_started
         rows.extend(
-            FindResult(
+            DiscoveryResult(
+                ok=False,
                 port=port,
                 address=address,
                 baudrate=baudrate,
                 protocol=protocol,
-                ok=False,
-                info=None,
+                device_info=None,
                 error=exc,
+                elapsed_s=open_elapsed,
             )
             for address in addresses
         )
@@ -336,15 +341,17 @@ async def _probe_combo(
         # row per address but don't mark the port dead; a different
         # (baudrate, protocol) combo may succeed (e.g. wrong-parity
         # rejected by the kernel termios layer on a specific framing).
+        open_elapsed = time.monotonic() - open_started
         rows.extend(
-            FindResult(
+            DiscoveryResult(
+                ok=False,
                 port=port,
                 address=address,
                 baudrate=baudrate,
                 protocol=protocol,
-                ok=False,
-                info=None,
+                device_info=None,
                 error=exc,
+                elapsed_s=open_elapsed,
             )
             for address in addresses
         )
@@ -389,7 +396,7 @@ async def _probe_address(
     address: int,
     serial_settings: SerialSettings,
     timeout_s: float,
-) -> FindResult:
+) -> DiscoveryResult:
     """Identify the device at ``address`` over the open ``transport``.
 
     Caps the entire identify exchange at ``timeout_s`` via
@@ -417,6 +424,7 @@ async def _probe_address(
 
     info = None
     error: WatlowError | None = None
+    started = time.monotonic()
     try:
         try:
             with anyio.fail_after(timeout_s):
@@ -472,12 +480,13 @@ async def _probe_address(
                 ),
             )
 
-    return FindResult(
+    return DiscoveryResult(
+        ok=info is not None,
         port=port,
         address=address,
         baudrate=baudrate,
         protocol=protocol,
-        ok=info is not None,
-        info=info,
+        device_info=info,
         error=error,
+        elapsed_s=time.monotonic() - started,
     )

@@ -265,7 +265,7 @@ class SyncWatlowManager:
                 stack.enter_context(wrapped)
                 sink_for_pipe = wrapped
 
-            stream = stack.enter_context(
+            recording = stack.enter_context(
                 record(
                     self,
                     parameters=parameters,
@@ -279,7 +279,7 @@ class SyncWatlowManager:
                 ),
             )
             return pipe(
-                stream,
+                recording.stream,
                 sink_for_pipe,
                 batch_size=batch_size,
                 flush_interval=flush_interval,

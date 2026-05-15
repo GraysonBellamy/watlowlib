@@ -2,7 +2,7 @@
 
 Demonstrates the cross-vendor row schema. Both libraries emit
 long-format rows ``(device, address, protocol, parameter, parameter_id,
-instance, value, unit, requested_at, received_at, midpoint_at,
+instance, value, unit, t_mono_ns, t_utc, requested_at, received_at,
 latency_s)``, so a single SQLite table holds rows from both vendors and
 ordinary SQL aggregates work across them.
 
@@ -28,10 +28,10 @@ from watlowlib import (
     SerialSettings,
     SqliteSink,
     WatlowManager,
-    open_controller,
     pipe,
     record,
 )
+from watlowlib.testing import open_test_controller
 
 # --- Captured PM3 PV (4001) round-trip — same fixture as the test suite. ----
 _REQ_READ_PV = bytes.fromhex("55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99")
@@ -59,10 +59,11 @@ def _fake_alicat_samples() -> list[Sample]:
             instance=1,
             value=value,
             unit=unit,
-            monotonic_ns=0,
+            t_mono_ns=0,
+            t_utc=now,
+            t_midpoint_mono_ns=None,
             requested_at=now,
             received_at=now,
-            midpoint_at=now,
             latency_s=0.001,
             raw=b"",
         )
@@ -79,7 +80,7 @@ async def main(out_path: Path) -> None:
 
     async with SqliteSink(out_path, table="samples") as sink:
         # --- Watlow side: record at 5 Hz for ~0.4 s through a manager. -----
-        controller = await open_controller(
+        controller = await open_test_controller(
             transport,
             protocol=ProtocolKind.STDBUS,
             address=1,
@@ -92,8 +93,8 @@ async def main(out_path: Path) -> None:
                 parameters=["process_value"],
                 rate_hz=5.0,
                 duration=0.4,
-            ) as stream:
-                summary = await pipe(stream, sink, batch_size=4, flush_interval=0.1)
+            ) as recording:
+                summary = await pipe(recording.stream, sink, batch_size=4, flush_interval=0.1)
         print(
             f"watlow recorded {summary.samples_emitted} samples "
             f"in {(summary.finished_at - summary.started_at).total_seconds():.2f}s",

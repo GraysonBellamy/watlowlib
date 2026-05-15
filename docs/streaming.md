@@ -17,7 +17,8 @@ instance) read. A `Sample` carries:
 
 ```
 device, address, protocol, parameter, parameter_id, instance,
-value, unit, requested_at, received_at, midpoint_at, latency_s, raw
+value, unit, t_mono_ns, t_utc, t_midpoint_mono_ns,
+requested_at, received_at, latency_s, raw
 ```
 
 Tabular sinks drop `raw` (binary; awkward in CSV / SQLite) and stringify

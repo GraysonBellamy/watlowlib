@@ -1,8 +1,9 @@
 # Quickstart — async
 
 The async core is `open_device`, `Controller`, parameter read / write,
-and identify. The example below uses `FakeTransport` so it runs without
-hardware. Replace `open_controller(transport, ...)` with
+and identify. The example below uses `FakeTransport` (through the
+`watlowlib.testing` surface) so it runs without hardware. Replace the
+`open_test_controller(transport, ...)` call with
 `open_device("/dev/ttyUSB0", protocol=ProtocolKind.STDBUS, address=1)`
 to talk to a live PM3.
 
@@ -15,8 +16,8 @@ from watlowlib import (
     FakeTransport,
     ProtocolKind,
     SerialSettings,
-    open_controller,
 )
+from watlowlib.testing import open_test_controller
 
 # Captured PM3 round-trip: read PV (parameter 4001) at MAC 0x10
 REQ_READ_PV = bytes.fromhex("55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99")
@@ -27,7 +28,7 @@ RSP_READ_PV = bytes.fromhex(
 
 async def main() -> None:
     transport = FakeTransport({REQ_READ_PV: RSP_READ_PV})
-    controller = await open_controller(
+    controller = await open_test_controller(
         transport,
         protocol=ProtocolKind.STDBUS,
         address=1,
@@ -52,8 +53,10 @@ controller = await open_device(
     protocol=ProtocolKind.STDBUS,
     address=1,
 )
+# ``open_device`` runs ``identify()`` for you (``identify=False`` to opt out),
+# so ``controller.snapshot()`` renders without further I/O.
 async with controller as ctl:
-    info = await ctl.identify()
+    snap = await ctl.snapshot()
     pv = await ctl.read_pv()
     await ctl.set_setpoint(75.0, confirm=True)
 ```
