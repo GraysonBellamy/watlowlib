@@ -1,3 +1,7 @@
+---
+description: watlowlib.registry — the cross-protocol parameter registry PARAMETERS, ParameterRegistry, ParameterSpec, RwesFlag, family table, enumerations, and unit enums.
+---
+
 # `watlowlib.registry`
 
 The cross-protocol parameter registry — `PARAMETERS`,

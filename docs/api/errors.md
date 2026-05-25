@@ -1,3 +1,7 @@
+---
+description: watlowlib.errors — the typed exception hierarchy and ErrorContext dataclass; every public-facing error inherits from WatlowError.
+---
+
 # `watlowlib.errors`
 
 The typed exception hierarchy and `ErrorContext` dataclass. Every

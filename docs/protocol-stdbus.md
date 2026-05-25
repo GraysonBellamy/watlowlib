@@ -1,3 +1,7 @@
+---
+description: Watlow Standard Bus protocol reference — BACnet MS/TP outer framing over EIA-485 with a Watlow-proprietary application payload, plus Watbus deployment details.
+---
+
 # Watlow Standard Bus Protocol Reference Survey
 
 ## Executive summary

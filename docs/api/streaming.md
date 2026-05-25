@@ -1,3 +1,7 @@
+---
+description: watlowlib.streaming — Sample, record(), OverflowPolicy, AcquisitionSummary, and the PollSource Protocol the recorder drives.
+---
+
 # `watlowlib.streaming`
 
 `Sample`, `record()`, `OverflowPolicy`, `AcquisitionSummary`, and the

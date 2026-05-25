@@ -1,3 +1,7 @@
+---
+description: Sync quickstart for watlowlib — blocking facade over the async core for scripts, notebooks, and REPL sessions. Every async method has a sync parity.
+---
+
 # Sync quickstart
 
 The async core is canonical (see [Async quickstart](quickstart-async.md)).

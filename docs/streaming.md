@@ -1,3 +1,7 @@
+---
+description: Streaming and sinks in watlowlib — record() polls a Controller or WatlowManager at a fixed cadence and emits Sample batches into a typed time-series pipeline.
+---
+
 # Streaming and sinks
 
 `watlowlib` records device polls into time-series sinks through three

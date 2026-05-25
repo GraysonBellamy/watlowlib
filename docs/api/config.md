@@ -1,3 +1,7 @@
+---
+description: watlowlib.config — Defaults for process-wide I/O timeout, drain idle, and default Standard Bus baud, threaded through open_device and WatlowManager.
+---
+
 # `watlowlib.config`
 
 `Defaults` — process-wide defaults for I/O timeout, drain idle, and

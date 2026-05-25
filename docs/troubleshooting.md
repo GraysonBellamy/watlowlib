@@ -1,3 +1,7 @@
+---
+description: Troubleshoot Watlow serial mis-config, factory protocol defaults, SKU-vs-protocol mismatches, and the typed errors watlowlib raises when something is off.
+---
+
 # Troubleshooting
 
 This page collects the failure modes that come up first in the field —

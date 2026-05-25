@@ -1,3 +1,7 @@
+---
+description: watlowlib.devices — the Controller facade, Session, and typed dataclasses (Reading, DeviceInfo, PartNumber, AlarmState, LoopState, snapshots).
+---
+
 # `watlowlib.devices`
 
 The `Controller` facade, `Session`, typed dataclasses (`Reading`,

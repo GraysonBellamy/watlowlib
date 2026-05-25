@@ -1,3 +1,7 @@
+---
+description: Modbus RTU mapping in watlowlib — how Watlow parameter ids map to Modbus register addresses, encoding rules, and Watlow-specific quirks handled by the codec.
+---
+
 # Modbus RTU mapping
 
 `watlowlib` speaks Modbus RTU through the in-house

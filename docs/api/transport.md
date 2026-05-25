@@ -1,3 +1,7 @@
+---
+description: watlowlib.transport — the Transport Protocol, SerialTransport for real hardware, and FakeTransport for deterministic unit tests.
+---
+
 # `watlowlib.transport`
 
 The `Transport` Protocol, `SerialTransport` for hardware, and

@@ -1,3 +1,7 @@
+---
+description: Auto-generated API reference for watlowlib — every public name from the guide pages and its docstring, rendered via mkdocstrings-python.
+---
+
 # API reference
 
 Auto-generated from source docstrings via

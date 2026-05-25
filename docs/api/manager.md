@@ -1,3 +1,7 @@
+---
+description: watlowlib.manager — WatlowManager multi-port, multi-device orchestration with ref-counted shared ProtocolClients and per-port locking.
+---
+
 # `watlowlib.manager`
 
 `WatlowManager` — multi-port, multi-device orchestration with

@@ -1,3 +1,7 @@
+---
+description: The Controller facade in watlowlib — one class for every Watlow family, capability flags decoded from the part number, and capability-dispatched behavior.
+---
+
 # Controllers
 
 Watlow controllers all do the same thing — read a process value, drive

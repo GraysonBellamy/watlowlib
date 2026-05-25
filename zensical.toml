@@ -1,7 +1,7 @@
 [project]
 site_name = "watlowlib"
 site_description = "Python library for Watlow temperature controllers (Standard Bus and Modbus RTU over serial)."
-site_url = "https://GraysonBellamy.github.io/watlowlib/"
+site_url = "https://graysonbellamy.github.io/watlowlib/"
 repo_url = "https://github.com/GraysonBellamy/watlowlib"
 repo_name = "GraysonBellamy/watlowlib"
 edit_uri = "edit/main/docs/"

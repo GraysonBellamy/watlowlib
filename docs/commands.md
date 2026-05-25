@@ -1,3 +1,7 @@
+---
+description: The Command[Req, Resp] surface in watlowlib — per-protocol variants, safety tiers, firmware metadata, and how the session dispatches Standard Bus vs Modbus RTU.
+---
+
 # Commands
 
 Every Watlow command is one [`Command[Req, Resp]`](../src/watlowlib/commands/base.py)

@@ -1,3 +1,7 @@
+---
+description: Async-first Python driver for Watlow temperature controllers over RS-232 and EIA-485 — Standard Bus and Modbus RTU behind one typed Controller API.
+---
+
 # watlowlib
 
 Async-first Python driver for [Watlow](https://www.watlow.com/)

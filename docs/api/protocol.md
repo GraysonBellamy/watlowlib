@@ -1,3 +1,7 @@
+---
+description: watlowlib.protocol — ProtocolKind, the ProtocolClient runtime-checkable Protocol, and the Standard Bus and Modbus RTU client implementations.
+---
+
 # `watlowlib.protocol`
 
 `ProtocolKind`, the `ProtocolClient` runtime-checkable Protocol, and

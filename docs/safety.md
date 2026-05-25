@@ -1,3 +1,7 @@
+---
+description: Safety rules in watlowlib — per-command SafetyTier, confirm=True on destructive operations, and the binding constraints on driving physical Watlow hardware.
+---
+
 # Safety
 
 `watlowlib` drives physical hardware — heaters, ovens, retort
