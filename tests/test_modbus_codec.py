@@ -162,3 +162,80 @@ def test_string_overflow_raises() -> None:
             word_order=WordOrder.HIGH_LOW,
             byte_order=ByteOrder.BIG,
         )
+
+
+# ----- S16 (signed 16-bit, one register) — Series SD power / percent -----
+
+
+def test_s16_round_trip_negative() -> None:
+    """S16 sign-extends a single register (SD output power -82.80% → -8280)."""
+    words = encode_value_to_words(
+        -8280,
+        data_type=DataType.S16,
+        register_count=1,
+        word_order=WordOrder.HIGH_LOW,
+        byte_order=ByteOrder.BIG,
+    )
+    assert words == (0xDFA8,)  # -8280 as two's-complement 16-bit
+    value = decode_words(
+        words,
+        data_type=DataType.S16,
+        word_order=WordOrder.HIGH_LOW,
+        byte_order=ByteOrder.BIG,
+    )
+    assert isinstance(value, int)
+    assert value == -8280
+
+
+def test_s16_round_trip_positive_extremes() -> None:
+    for raw in (10000, -10000, 32767, -32768):
+        words = encode_value_to_words(
+            raw,
+            data_type=DataType.S16,
+            register_count=1,
+            word_order=WordOrder.HIGH_LOW,
+            byte_order=ByteOrder.BIG,
+        )
+        assert len(words) == 1
+        value = decode_words(
+            words,
+            data_type=DataType.S16,
+            word_order=WordOrder.HIGH_LOW,
+            byte_order=ByteOrder.BIG,
+        )
+        assert value == raw
+
+
+def test_s16_does_not_wrap_on_overflow() -> None:
+    """Unlike U16/PACKED, S16 range-checks rather than masking with & 0xFFFF."""
+    with pytest.raises(ValueError):  # noqa: PT011 — anymodbus raises bare ValueError
+        encode_value_to_words(
+            40000,
+            data_type=DataType.S16,
+            register_count=1,
+            word_order=WordOrder.HIGH_LOW,
+            byte_order=ByteOrder.BIG,
+        )
+
+
+def test_s16_tag_distinct_from_packed() -> None:
+    """S16 has a unique out-of-band tag — it must not alias PACKED (0x0F)."""
+    assert int(DataType.S16) != int(DataType.PACKED)
+    assert int(DataType.S16) == 0x86
+
+
+def test_string_unicode_decode_error_is_typed() -> None:
+    """Non-ASCII register bytes on the STRING path raise a typed protocol error.
+
+    A foreign device (or a wrong-protocol probe) returns bytes that
+    ``anymodbus`` decodes strict-ASCII; the codec must surface a
+    ``WatlowProtocolError`` (caught by the dispatch path) rather than a
+    bare ``UnicodeDecodeError`` that would abort a discovery scan.
+    """
+    with pytest.raises(WatlowProtocolError, match="STRING decode failed"):
+        decode_words(
+            (0xFFFE, 0xFDFC),  # high bytes are not valid ASCII
+            data_type=DataType.STRING,
+            word_order=WordOrder.HIGH_LOW,
+            byte_order=ByteOrder.BIG,
+        )

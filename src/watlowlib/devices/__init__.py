@@ -28,6 +28,13 @@ from watlowlib.devices.models import (
     PartNumber,
     Reading,
 )
+from watlowlib.devices.profile import (
+    DEVICE_PROFILES,
+    EZZONE_PROFILE,
+    SERIES_SD_PROFILE,
+    DeviceProfile,
+    IdentifyStrategy,
+)
 from watlowlib.devices.session import Session
 from watlowlib.devices.snapshot import DeviceSnapshot, WatlowDeviceSnapshot
 
@@ -35,6 +42,9 @@ __all__ = [
     "DEFAULT_DISCOVERY_ADDRESSES",
     "DEFAULT_DISCOVERY_BAUDRATES",
     "DEFAULT_DISCOVERY_PROTOCOLS",
+    "DEVICE_PROFILES",
+    "EZZONE_PROFILE",
+    "SERIES_SD_PROFILE",
     "AlarmState",
     "Availability",
     "Capability",
@@ -42,8 +52,10 @@ __all__ = [
     "ControllerFamily",
     "ControllerLoop",
     "DeviceInfo",
+    "DeviceProfile",
     "DeviceSnapshot",
     "DiscoveryResult",
+    "IdentifyStrategy",
     "LoopState",
     "ParameterEntry",
     "PartNumber",

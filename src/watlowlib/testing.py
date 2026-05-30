@@ -90,19 +90,19 @@ from typing import TYPE_CHECKING, Any
 from anyserial import Parity
 
 from watlowlib.devices.controller import Controller
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.devices.session import Session
 from watlowlib.errors import ErrorContext, WatlowConfigurationError
 from watlowlib.protocol.base import ProtocolKind
 from watlowlib.protocol.client import make_protocol_client
 from watlowlib.protocol.modbus.client import ModbusProtocolClient
-from watlowlib.registry.families import ControllerFamily
-from watlowlib.registry.parameters import PARAMETERS
 from watlowlib.transport.base import SerialSettings
 from watlowlib.transport.fake import FakeSlave, FakeTransport
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from watlowlib.devices.profile import DeviceProfile
     from watlowlib.registry.units import Unit
     from watlowlib.transport.base import Transport
 
@@ -126,7 +126,7 @@ async def open_test_controller(
     protocol: ProtocolKind = ProtocolKind.STDBUS,
     address: int = 1,
     serial_settings: SerialSettings | None = None,
-    family: ControllerFamily = ControllerFamily.UNKNOWN,
+    profile: DeviceProfile = EZZONE_PROFILE,
     wire_temperature_unit: Unit | None = None,
 ) -> Controller:
     """Build an opened :class:`Controller` over an existing :class:`Transport`.
@@ -147,7 +147,10 @@ async def open_test_controller(
         serial_settings: Optional override; defaults to a
             ``fake://test`` placeholder so call sites that don't care
             about framing stay terse.
-        family: Best-known :class:`ControllerFamily` prior.
+        profile: Device profile to decode against. Defaults to
+            :data:`~watlowlib.devices.profile.EZZONE_PROFILE`; pass
+            :data:`~watlowlib.devices.profile.SERIES_SD_PROFILE` to
+            decode an SD fixture against ``SD_PARAMETERS``.
         wire_temperature_unit: Already-coerced :class:`Unit` to drive
             :class:`Reading.unit` / :class:`Sample.unit` for
             temperature parameters. Tests usually leave this ``None``.
@@ -162,7 +165,7 @@ async def open_test_controller(
         protocol=protocol,
         address=address,
         serial_settings=settings,
-        family=family,
+        profile=profile,
         wire_temperature_unit=wire_temperature_unit,
     )
 
@@ -290,7 +293,7 @@ def load_fixture(path: str | Path) -> Fixture:
 async def controller_from_fixture(
     path: str | Path,
     *,
-    family: ControllerFamily = ControllerFamily.PM,
+    profile: DeviceProfile = EZZONE_PROFILE,
 ) -> Controller:
     """Build an unopened :class:`Controller` scripted by ``path``.
 
@@ -299,6 +302,13 @@ async def controller_from_fixture(
     Modbus fixtures wire through :class:`FakeSlave` (the
     :class:`Transport` shim only carries lifecycle, since the Modbus
     protocol client talks to its slave provider directly).
+
+    Args:
+        path: JSONL fixture path.
+        profile: Device profile to decode against. Defaults to
+            :data:`~watlowlib.devices.profile.EZZONE_PROFILE`; pass
+            :data:`~watlowlib.devices.profile.SERIES_SD_PROFILE` so an
+            SD fixture decodes against ``SD_PARAMETERS``.
     """
     fixture = load_fixture(path)
     if fixture.protocol is ProtocolKind.STDBUS:
@@ -308,7 +318,7 @@ async def controller_from_fixture(
             protocol=ProtocolKind.STDBUS,
             address=fixture.address,
             serial_settings=fixture.serial_settings,
-            family=family,
+            profile=profile,
         )
 
     # Modbus path: build the protocol client over a FakeSlave directly,
@@ -323,8 +333,7 @@ async def controller_from_fixture(
     )
     session = Session(
         client,
-        registry=PARAMETERS,
-        family=family,
+        profile=profile,
         address=fixture.address,
         port=transport.label,
     )
@@ -340,7 +349,7 @@ async def _open_fixture_controller(
     protocol: ProtocolKind,
     address: int,
     serial_settings: SerialSettings,
-    family: ControllerFamily = ControllerFamily.UNKNOWN,
+    profile: DeviceProfile = EZZONE_PROFILE,
     wire_temperature_unit: Unit | None = None,
 ) -> Controller:
     """Build an opened controller over a test transport."""
@@ -355,8 +364,7 @@ async def _open_fixture_controller(
     client = make_protocol_client(protocol, transport)
     session = Session(
         client,
-        registry=PARAMETERS,
-        family=family,
+        profile=profile,
         address=address,
         port=transport.label,
         wire_temperature_unit=wire_temperature_unit,

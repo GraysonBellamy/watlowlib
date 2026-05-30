@@ -30,9 +30,9 @@ from watlowlib import (
     WatlowValidationError,
 )
 from watlowlib.commands import PidGains, read_pid, write_pid
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.devices.session import Session
 from watlowlib.protocol.modbus import ModbusProtocolClient
-from watlowlib.registry.families import ControllerFamily
 from watlowlib.testing import open_test_controller
 
 # --- Fixtures -------------------------------------------------------
@@ -214,8 +214,7 @@ def _build_modbus_controller(slave: _ScriptedSlave) -> Controller:
     )
     session = Session(
         client,
-        registry=PARAMETERS,
-        family=ControllerFamily.PM,
+        profile=EZZONE_PROFILE,
         address=1,
         port=transport.label,
     )

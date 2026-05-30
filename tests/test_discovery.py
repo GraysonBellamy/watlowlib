@@ -440,6 +440,46 @@ async def test_find_devices_silent_bus(
     assert rows[0].error is not None
 
 
+@pytest.mark.anyio
+async def test_find_devices_address_out_of_range_does_not_abort_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    anyio_backend: object,
+) -> None:
+    """A Std Bus address > 16 emits a typed ok=False row, not a scan abort.
+
+    Regression guard for the latent ``addr_to_mac`` bug: it used to
+    raise a bare ``ValueError`` mid-dispatch that no layer caught, so a
+    single out-of-range address aborted the whole scan. Discovery now
+    pre-validates the address per protocol and emits a structured
+    ``WatlowConfigurationError`` row while continuing to probe the
+    valid addresses.
+    """
+    from watlowlib import WatlowConfigurationError
+
+    _ = anyio_backend
+    fakes = _empty_fakes()
+    fakes.stdbus_scripts[("/dev/fake", 38400)] = FakeTransport(
+        _build_stdbus_script(mac=addr_to_mac(1))
+    )
+    _patch_factory(monkeypatch, fakes)
+
+    rows = await find_devices(
+        ports=["/dev/fake"],
+        addresses=(1, 17),  # 17 is out of the Std Bus 1..16 range
+        baudrates=(38400,),
+        protocols=(ProtocolKind.STDBUS,),
+    )
+
+    assert len(rows) == 2
+    by_addr = {r.address: r for r in rows}
+    # The valid address still probed successfully — the scan did not abort.
+    assert by_addr[1].ok is True
+    # The out-of-range address is a typed config error, elapsed-free.
+    assert by_addr[17].ok is False
+    assert isinstance(by_addr[17].error, WatlowConfigurationError)
+    assert by_addr[17].elapsed_s == 0.0
+
+
 # --- Cartesian product ordering -----------------------------------
 
 

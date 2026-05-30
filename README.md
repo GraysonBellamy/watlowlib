@@ -16,10 +16,11 @@ acquisition helpers, and pluggable sinks.
 
 > **Status: alpha.** Both wire protocols, the `Controller` facade,
 > `WatlowManager`, streaming, all sinks, the sync facade, and every CLI
-> are implemented and covered by 494 tests across `asyncio`,
+> are implemented and covered by 579 passing tests across `asyncio`,
 > `asyncio+uvloop`, and `trio`. The core has been exercised against a
-> live EZ-ZONE PM3 (Standard Bus); the Modbus RTU side has full
-> codec / client / integration coverage but limited bench mileage.
+> live EZ-ZONE PM3 (Standard Bus) and a Series SD over Modbus RTU;
+> the Modbus RTU side has codec / client / integration coverage plus
+> captured PM3 and SD fixture goldens.
 > Expect API churn until 1.0. See [docs/design.md](docs/design.md) for
 > the architectural reference.
 

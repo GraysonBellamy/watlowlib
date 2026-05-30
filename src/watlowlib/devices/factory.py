@@ -12,21 +12,21 @@ The factory does **not** sweep bauds — the user sets one. See
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from watlowlib.devices.controller import Controller
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.devices.session import Session
 from watlowlib.errors import ErrorContext, WatlowConfigurationError
 from watlowlib.protocol.base import ProtocolKind
 from watlowlib.protocol.client import make_protocol_client
-from watlowlib.registry.families import ControllerFamily
-from watlowlib.registry.parameters import PARAMETERS
 from watlowlib.registry.units import Unit, coerce_unit
-from watlowlib.transport.base import SerialSettings
 from watlowlib.transport.serial import SerialTransport
 
 if TYPE_CHECKING:
-    from watlowlib.transport.base import Transport
+    from watlowlib.devices.profile import DeviceProfile
+    from watlowlib.transport.base import SerialSettings, Transport
 
 __all__ = ["coerce_wire_temperature_unit", "open_device"]
 
@@ -34,7 +34,8 @@ __all__ = ["coerce_wire_temperature_unit", "open_device"]
 async def open_device(
     port: str,
     *,
-    protocol: ProtocolKind = ProtocolKind.STDBUS,
+    profile: DeviceProfile = EZZONE_PROFILE,
+    protocol: ProtocolKind | None = None,
     address: int = 1,
     serial_settings: SerialSettings | None = None,
     assert_wire_temperature_unit: Unit | str | None = None,
@@ -44,21 +45,28 @@ async def open_device(
 
     Args:
         port: Serial-port path (``/dev/ttyUSB0``, ``COM3``, ...).
-        protocol: Wire protocol. ``STDBUS`` and ``MODBUS_RTU`` open
-            directly; ``AUTO`` runs the conservative detector
-            (Std Bus → Modbus → fail) per ``docs/design.md`` §7.
+        profile: The device profile to open against. Defaults to
+            :data:`~watlowlib.devices.profile.EZZONE_PROFILE` (EZ-ZONE
+            PM), which preserves all historical behaviour. Pass
+            :data:`~watlowlib.devices.profile.SERIES_SD_PROFILE` for a
+            Series SD. The profile supplies the default protocol,
+            factory serial framing, parameter registry, identity
+            strategy, and (for the SD) the wire temperature unit.
+        protocol: Wire protocol. ``None`` (default) adopts
+            ``profile.default_protocol`` (Std Bus for PM, Modbus RTU for
+            SD). ``STDBUS`` / ``MODBUS_RTU`` open directly; ``AUTO``
+            runs the conservative detector (Std Bus → Modbus → fail)
+            per ``docs/design.md`` §7.
         address: Bus address. Std Bus accepts ``1..16``; Modbus RTU
             accepts ``1..247``. Under ``AUTO`` the same address is
             tried against both probes.
-        serial_settings: Optional override. Default is **38400 8-N-1**,
-            the EZ-ZONE PM Standard Bus factory setting; ``port`` from
-            the positional arg is applied if ``serial_settings`` is
-            ``None``. For Modbus RTU, the typical PM factory framing
-            is **9600 8-E-1** — pass an explicit
-            :class:`SerialSettings` to override the default. Auto-
-            detect uses the same framing for both probes — there is
-            no baud sweeping in the open path (cross-cutting
-            invariant 5).
+        serial_settings: Optional framing override. ``None`` (default)
+            adopts ``profile.default_serial`` with ``port`` applied —
+            **38400 8-N-1** for the EZ-ZONE PM Std Bus profile, **9600
+            8-N-1** for the Series SD profile. An explicit
+            :class:`SerialSettings` still has its ``port`` forced to the
+            positional ``port`` arg. There is no baud sweeping in the
+            open path (cross-cutting invariant 5).
         identify: When ``True`` (default), :meth:`Controller.identify`
             runs after the transport opens so :meth:`Controller.snapshot`
             renders without further wire I/O. Set ``False`` for the
@@ -95,23 +103,38 @@ async def open_device(
         WatlowProtocolUnsupportedError: ``protocol=AUTO`` and both
             probes failed.
     """
-    if protocol not in (ProtocolKind.STDBUS, ProtocolKind.MODBUS_RTU, ProtocolKind.AUTO):
+    # ``protocol=None`` adopts the profile's factory protocol (Std Bus
+    # for EZ-ZONE PM, Modbus RTU for Series SD).
+    resolved_protocol = protocol if protocol is not None else profile.default_protocol
+    if resolved_protocol not in (
+        ProtocolKind.STDBUS,
+        ProtocolKind.MODBUS_RTU,
+        ProtocolKind.AUTO,
+    ):
         raise WatlowConfigurationError(
-            f"unsupported protocol kind: {protocol!r}",
+            f"unsupported protocol kind: {resolved_protocol!r}",
             context=ErrorContext(port=port),
         )
 
-    wire_unit = coerce_wire_temperature_unit(assert_wire_temperature_unit)
+    # ``assert_wire_temperature_unit`` overrides the profile default
+    # (the SD knows it speaks °F; the PM contract is "user must assert").
+    wire_unit = (
+        profile.wire_temperature_unit
+        if assert_wire_temperature_unit is None
+        else coerce_wire_temperature_unit(assert_wire_temperature_unit)
+    )
 
-    settings = serial_settings or SerialSettings(port=port)
-    if settings.port != port:
-        # User passed both — we honour the explicit ``port`` arg over
-        # the settings dataclass to avoid silent surprise.
-        from dataclasses import replace  # noqa: PLC0415 — cold path
+    # ``serial_settings=None`` adopts the profile's factory framing
+    # (port applied from the positional arg). An explicit override still
+    # has ``port`` forced to the positional arg to avoid silent surprise.
+    if serial_settings is None:
+        settings = replace(profile.default_serial, port=port)
+    elif serial_settings.port != port:
+        settings = replace(serial_settings, port=port)
+    else:
+        settings = serial_settings
 
-        settings = replace(settings, port=port)
-
-    if protocol is ProtocolKind.AUTO:
+    if resolved_protocol is ProtocolKind.AUTO:
         # Lazy import — keep the Std-Bus-only callers off the anymodbus
         # dep graph until they actually opt in to AUTO.
         from watlowlib.protocol.detect import detect_protocol  # noqa: PLC0415
@@ -127,8 +150,7 @@ async def open_device(
         # ``transport.is_open`` is already True).
         session = Session(
             resolved.client,
-            registry=PARAMETERS,
-            family=ControllerFamily.UNKNOWN,
+            profile=profile,
             address=address,
             port=resolved.transport.label,
             wire_temperature_unit=wire_unit,
@@ -139,7 +161,7 @@ async def open_device(
         return controller
 
     transport: Transport
-    if protocol is ProtocolKind.MODBUS_RTU:
+    if resolved_protocol is ProtocolKind.MODBUS_RTU:
         # Lazy import — keep the Std-Bus path off the anymodbus dep
         # graph for users who never reach for Modbus.
         from watlowlib.protocol.modbus.transport import (  # noqa: PLC0415
@@ -151,7 +173,8 @@ async def open_device(
         transport = SerialTransport(settings)
     controller = await _open_controller(
         transport,
-        protocol=protocol,
+        profile=profile,
+        protocol=resolved_protocol,
         address=address,
         serial_settings=settings,
         wire_temperature_unit=wire_unit,
@@ -164,10 +187,10 @@ async def open_device(
 async def _open_controller(
     transport: Transport,
     *,
+    profile: DeviceProfile,
     protocol: ProtocolKind,
     address: int,
     serial_settings: SerialSettings,
-    family: ControllerFamily = ControllerFamily.UNKNOWN,
     wire_temperature_unit: Unit | None = None,
 ) -> Controller:
     """Build an opened :class:`Controller` over an existing :class:`Transport`.
@@ -194,8 +217,7 @@ async def _open_controller(
     client = make_protocol_client(protocol, transport)
     session = Session(
         client,
-        registry=PARAMETERS,
-        family=family,
+        profile=profile,
         address=address,
         port=transport.label,
         wire_temperature_unit=wire_temperature_unit,

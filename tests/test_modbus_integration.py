@@ -28,13 +28,13 @@ if TYPE_CHECKING:
 
 from tests.test_modbus_client import _instantiate_modbus_exc  # pyright: ignore[reportPrivateUsage]
 from watlowlib import (
-    PARAMETERS,
     Availability,
     Controller,
     ProtocolKind,
     SerialSettings,
     WatlowConfirmationRequiredError,
 )
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.devices.session import Session
 from watlowlib.errors import (
     WatlowModbusIllegalDataAddressError,
@@ -42,7 +42,6 @@ from watlowlib.errors import (
     WatlowProtocolUnsupportedError,
 )
 from watlowlib.protocol.modbus import ModbusProtocolClient
-from watlowlib.registry.families import ControllerFamily
 
 # Setpoint relative_addr = 2160 (FLOAT, 2 regs); PV at 360 (FLOAT, 2 regs).
 # 392.0 → 0x43C40000 → (0x43C4, 0x0000) HIGH_LOW.
@@ -157,8 +156,7 @@ def _build_controller(slave: _ScriptedSlave) -> Controller:
     )
     session = Session(
         client,
-        registry=PARAMETERS,
-        family=ControllerFamily.PM,
+        profile=EZZONE_PROFILE,
         address=1,
         port=transport.label,
     )

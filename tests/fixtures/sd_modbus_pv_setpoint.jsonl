@@ -1,0 +1,6 @@
+{"kind": "header", "protocol": "modbus_rtu", "address": 10, "baudrate": 9600, "parity": "none", "port": "fake://sd-modbus"}
+{"protocol": "modbus_rtu", "label": "read_process_value", "method": "read_holding_registers", "address": 20, "count": 2, "response_words": [1, 2664]}
+{"protocol": "modbus_rtu", "label": "read_setpoint", "method": "read_holding_registers", "address": 27, "count": 2, "response_words": [0, 62960]}
+{"protocol": "modbus_rtu", "label": "read_output_power", "method": "read_holding_registers", "address": 26, "count": 1, "response_words": [8280]}
+{"protocol": "modbus_rtu", "label": "read_units", "method": "read_holding_registers", "address": 18, "count": 1, "response_words": [0]}
+{"protocol": "modbus_rtu", "label": "read_input_error", "method": "read_holding_registers", "address": 24, "count": 1, "response_words": [0]}

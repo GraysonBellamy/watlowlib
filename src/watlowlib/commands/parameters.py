@@ -275,6 +275,13 @@ class _ReadParameterModbus:
                 str(exc),
                 context=_modbus_err_ctx(spec, request, ctx),
             ) from exc
+        # Apply the engineering-unit scale (Modbus-only). Guard on
+        # ``!= 1.0`` and never touch STRING: ``int * 1.0`` is a float,
+        # so unconditional scaling would regress every unscaled integer
+        # read to a float. Scaled rows (SD PV ÷1000, power ÷100) are
+        # intentionally float.
+        if spec.scale != 1.0 and isinstance(value, int | float):
+            value = value * spec.scale
         # Pack words back to bytes for the Reading.raw payload — keeps
         # the cross-protocol Reading shape stable even though Modbus
         # never carries an "outer frame" the way Std Bus does.
@@ -287,6 +294,8 @@ class _WriteParameterModbus:
 
     def encode(self, ctx: CommandContext, request: WriteParameterRequest) -> ModbusOp:
         spec = _resolve(ctx, request)
+        # Validate in engineering units — ``range_min`` / ``range_max``
+        # are parsed from the human-facing range string.
         ctx.registry.validate_value(spec, request.value)
         encoding = encoding_for(
             spec.data_type,
@@ -294,9 +303,16 @@ class _WriteParameterModbus:
             register_count_override=spec.register_count or None,
         )
         register = _modbus_register_address(spec, request.instance)
+        # Scale engineering units back to the raw wire integer *after*
+        # validation and *before* encoding. Guard on ``!= 1.0`` and skip
+        # non-numeric (STRING) values. ``round`` keeps the nearest
+        # integer count (SD setpoint 62.96 °F → 62960 raw).
+        wire_value = request.value
+        if spec.scale != 1.0 and isinstance(wire_value, int | float):
+            wire_value = round(wire_value / spec.scale)
         try:
             words = encode_value_to_words(
-                request.value,
+                wire_value,
                 data_type=spec.data_type,
                 register_count=encoding.register_count,
                 word_order=encoding.word_order,

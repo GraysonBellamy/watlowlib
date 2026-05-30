@@ -45,6 +45,7 @@ class ControllerFamily(StrEnum):
     ST = "st"  # EZ-ZONE ST
     EZZONE_LIMIT = "ezzone_limit"  # EZ-ZONE Limit
     F4T = "f4t"  # F4T
+    SD = "sd"  # Series SD (Modbus RTU; bare-register map, no Std Bus)
     UNKNOWN = "unknown"
 
 
@@ -66,6 +67,8 @@ def classify_family(part_number: str) -> ControllerFamily:
         return ControllerFamily.ST
     if head.startswith("F4T"):
         return ControllerFamily.F4T
+    if head.startswith("SD"):
+        return ControllerFamily.SD
     return ControllerFamily.UNKNOWN
 
 

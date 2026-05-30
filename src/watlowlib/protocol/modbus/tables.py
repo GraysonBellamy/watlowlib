@@ -62,6 +62,8 @@ _DEFAULTS: dict[DataType, ModbusEncoding] = {
     DataType.S32: ModbusEncoding(2, _DEFAULT_WORD_ORDER, _DEFAULT_BYTE_ORDER),
     DataType.U32: ModbusEncoding(2, _DEFAULT_WORD_ORDER, _DEFAULT_BYTE_ORDER),
     DataType.U16: ModbusEncoding(1, _DEFAULT_WORD_ORDER, _DEFAULT_BYTE_ORDER),
+    # S16 → 1 sign-extended register (Series SD signed power / percent).
+    DataType.S16: ModbusEncoding(1, _DEFAULT_WORD_ORDER, _DEFAULT_BYTE_ORDER),
     DataType.U8: ModbusEncoding(1, _DEFAULT_WORD_ORDER, _DEFAULT_BYTE_ORDER),
     DataType.PACKED: ModbusEncoding(1, _DEFAULT_WORD_ORDER, _DEFAULT_BYTE_ORDER),
     # STRING uses register_count from the ParameterSpec (length-driven);

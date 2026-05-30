@@ -12,6 +12,7 @@ import math
 
 import pytest
 
+from watlowlib.errors import WatlowValidationError
 from watlowlib.protocol.stdbus import (
     DataType,
     ErrorCode,
@@ -61,9 +62,12 @@ def test_frame_roundtrip_all_canon_samples() -> None:
 def test_addr_mapping() -> None:
     assert addr_to_mac(1) == 0x10
     assert addr_to_mac(16) == 0x1F
-    with pytest.raises(ValueError, match="out of range"):
+    # Out-of-range addresses raise the typed WatlowValidationError (not a
+    # bare ValueError) so the dispatch / discovery path can catch it as a
+    # WatlowError and emit a structured ok=False row instead of aborting.
+    with pytest.raises(WatlowValidationError, match="out of range"):
         addr_to_mac(0)
-    with pytest.raises(ValueError, match="out of range"):
+    with pytest.raises(WatlowValidationError, match="out of range"):
         addr_to_mac(17)
 
 

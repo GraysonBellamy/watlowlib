@@ -208,9 +208,9 @@ future feature pending more capture work.
   Protocol) **persist across power cycles automatically** when 17051
   (Non-Volatile Save) is set to 106 (Yes), which is the factory
   default. 17051 itself is a sticky mode, not a one-shot trigger —
-  it stayed at 106 across multiple unrelated writes. The "two-phase
-  commit" hypothesis was wrong: RWE writes are single-step persistent
-  on this firmware.
+  it stayed at 106 across multiple unrelated writes. The extra commit
+  hypothesis was wrong: RWE writes are single-step persistent on this
+  firmware.
 - **Profile / recipe upload-download**: the F4T family supports profile
   upload via Standard Bus; the PM has its own profile-step parameters
   (class 19+). Not yet exercised.

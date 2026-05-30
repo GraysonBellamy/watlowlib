@@ -43,6 +43,7 @@ import anyio
 from watlowlib._lock import maybe_acquire
 from watlowlib._logging import get_logger
 from watlowlib.devices.controller import Controller
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.devices.session import Session
 from watlowlib.errors import (
     ErrorContext,
@@ -53,8 +54,6 @@ from watlowlib.errors import (
 )
 from watlowlib.protocol.base import ProtocolClient, ProtocolKind
 from watlowlib.protocol.client import make_protocol_client
-from watlowlib.registry.families import ControllerFamily
-from watlowlib.registry.parameters import PARAMETERS
 from watlowlib.streaming._poll import poll_controller
 from watlowlib.transport.base import SerialSettings
 from watlowlib.transport.serial import SerialTransport
@@ -64,6 +63,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from watlowlib.devices.models import Reading
+    from watlowlib.devices.profile import DeviceProfile
     from watlowlib.registry.units import Unit
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import Transport
@@ -272,7 +272,7 @@ class WatlowManager:
         protocol: ProtocolKind = ProtocolKind.STDBUS,
         address: int = 1,
         serial_settings: SerialSettings | None = None,
-        family: ControllerFamily = ControllerFamily.UNKNOWN,
+        profile: DeviceProfile = EZZONE_PROFILE,
         assert_wire_temperature_unit: Unit | str | None = None,
     ) -> Controller:
         """Register and open a controller under ``name``.
@@ -303,10 +303,13 @@ class WatlowManager:
                 accepts ``1..247``.
             serial_settings: Override default serial framing. Only
                 honoured when ``source`` is a port-string.
-            family: Best-known :class:`ControllerFamily`. Defaults to
-                :attr:`ControllerFamily.UNKNOWN`; the session uses this
-                for capability priors and is updated by ``identify()``
-                on the returned controller.
+            profile: Device profile to open against. Defaults to
+                :data:`~watlowlib.devices.profile.EZZONE_PROFILE`
+                (EZ-ZONE PM). Pass
+                :data:`~watlowlib.devices.profile.SERIES_SD_PROFILE` so a
+                rig can mix an SD and a PM on different ports. Ignored
+                when ``source`` is a pre-built :class:`Controller`
+                (which already carries its own profile).
             assert_wire_temperature_unit: Same semantics as
                 :func:`watlowlib.open_device` —
                 :class:`Reading.unit` / :class:`Sample.unit` for
@@ -348,7 +351,7 @@ class WatlowManager:
                 protocol=protocol,
                 address=address,
                 serial_settings=serial_settings,
-                family=family,
+                profile=profile,
                 wire_temperature_unit=wire_unit,
             )
 
@@ -606,7 +609,7 @@ class WatlowManager:
         protocol: ProtocolKind,
         address: int,
         serial_settings: SerialSettings | None,
-        family: ControllerFamily,
+        profile: DeviceProfile,
         wire_temperature_unit: Unit | None,
     ) -> tuple[str | None, _PortEntry | None, Controller]:
         """Map ``source`` to ``(port_key, port_entry, controller)``."""
@@ -636,7 +639,7 @@ class WatlowManager:
                 protocol=protocol,
                 address=address,
                 serial_settings=serial_settings if isinstance(source, str) else None,
-                family=family,
+                profile=profile,
                 wire_temperature_unit=wire_temperature_unit,
             )
         except BaseException:
@@ -701,7 +704,7 @@ class WatlowManager:
         protocol: ProtocolKind,
         address: int,
         serial_settings: SerialSettings | None,
-        family: ControllerFamily,
+        profile: DeviceProfile,
         wire_temperature_unit: Unit | None,
     ) -> Controller:
         """Build a :class:`Controller` against ``port_entry``'s shared client.
@@ -740,8 +743,7 @@ class WatlowManager:
         settings = serial_settings or SerialSettings(port=transport.label)
         session = Session(
             port_entry.client,
-            registry=PARAMETERS,
-            family=family,
+            profile=profile,
             address=address,
             port=transport.label,
             wire_temperature_unit=wire_temperature_unit,

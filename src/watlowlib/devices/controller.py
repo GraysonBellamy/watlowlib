@@ -26,42 +26,15 @@ from watlowlib.commands.parameters import (
 from watlowlib.devices._reading import reading_from_entry
 from watlowlib.devices.capability import Capability
 from watlowlib.devices.loop import ControllerLoop
-from watlowlib.devices.models import (
-    DeviceHealth,
-    DeviceInfo,
-    ParameterEntry,
-    PartNumber,
-    Reading,
-)
 from watlowlib.devices.snapshot import WatlowDeviceSnapshot
-from watlowlib.errors import (
-    WatlowProtocolError,
-    WatlowTransportError,
-    WatlowValidationError,
-)
-from watlowlib.protocol.base import ProtocolKind
-from watlowlib.registry.families import (
-    ControllerFamily,
-    capabilities_for_part_number,
-    decode_part_number,
-    default_loops,
-)
+from watlowlib.errors import WatlowValidationError
 from watlowlib.registry.units import Unit, coerce_unit, display_code_for_unit
-
-# Wide-enumeration codes for parameter 17009 (Protocol). Mirrors the
-# ``maintenance.PROTOCOL_MODE_CODES`` table so ``identify`` can decode
-# the EEPROM-resident protocol setting without importing maintenance
-# (which would create a cycle: maintenance imports the controller
-# factory, the factory builds a controller).
-_PROTOCOL_CODE_TO_KIND: dict[int, ProtocolKind] = {
-    1286: ProtocolKind.STDBUS,
-    1057: ProtocolKind.MODBUS_RTU,
-}
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
 
+    from watlowlib.devices.models import DeviceInfo, ParameterEntry, Reading
     from watlowlib.devices.session import Session
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import SerialSettings, Transport
@@ -103,6 +76,16 @@ class Controller:
     def session(self) -> Session:
         """Underlying session used for command dispatch."""
         return self._session
+
+    @property
+    def serial_settings(self) -> SerialSettings:
+        """Serial framing the controller was opened with.
+
+        Exposed so an identity strategy (see
+        :mod:`watlowlib.devices.profile`) can stamp it onto the
+        :class:`DeviceInfo` it builds.
+        """
+        return self._serial_settings
 
     @property
     def loops(self) -> int | None:
@@ -237,6 +220,46 @@ class Controller:
             timeout=timeout,
         )
         return await reading_from_entry(self._session, entry)
+
+    # --- EEPROM write management (Series SD register 17) ----------------
+
+    async def set_persistent_writes(
+        self,
+        enabled: bool,
+        *,
+        confirm: bool = False,
+        timeout: float | None = None,
+    ) -> None:
+        """Toggle whether subsequent writes persist to non-volatile memory.
+
+        Series-SD-specific. The SD persists every register write to
+        EEPROM by default, so a high-rate writer (ramping setpoints, a
+        tuning loop) can wear the EEPROM out and brick the controller.
+        Writing ``0`` to register 17 keeps subsequent writes in RAM
+        only; the device resets register 17 to ``1`` on every power
+        cycle, so call ``set_persistent_writes(False)`` once after each
+        power-up before a burst of writes (see ``sd_manual.txt`` p.84).
+
+        Args:
+            enabled: ``True`` → persist writes to EEPROM (the power-on
+                default); ``False`` → keep writes in RAM only (lost on
+                power cycle, but spares the EEPROM).
+            confirm: The write itself is gated like any other parameter
+                write — pass ``confirm=True`` to acknowledge it.
+            timeout: Per-write timeout override.
+
+        Raises:
+            WatlowConfirmationRequiredError: ``confirm`` is ``False``.
+            WatlowValidationError: the bound profile's registry has no
+                ``eeprom_write_enable`` parameter (e.g. an EZ-ZONE PM,
+                which has no such register).
+        """
+        await self.write_parameter(
+            "eeprom_write_enable",
+            1 if enabled else 0,
+            confirm=confirm,
+            timeout=timeout,
+        )
 
     # --- Comms unit label (inspection facade for parameter 17050) -------
 
@@ -398,56 +421,21 @@ class Controller:
                 fails. The original transport / protocol error class
                 is preserved.
         """
-        if strict:
-            entry = await self.read_parameter("part_number", timeout=timeout)
-            part_raw = entry.value if isinstance(entry.value, str) else None
-        else:
-            part_raw = await self._safe_read_str("part_number", timeout=timeout)
-        hw_id = await self._safe_read_int("hardware_id", timeout=timeout)
-        fw_id = await self._safe_read_int("firmware_id", timeout=timeout)
-        serial_str = await self._safe_read_str("serial_number", timeout=timeout)
-
-        if part_raw:
-            part = decode_part_number(part_raw)
-            capabilities = capabilities_for_part_number(part)
-            # PARTIAL when part_number is fine but a secondary read missed.
-            secondary_missing = hw_id is None or fw_id is None
-            health = DeviceHealth.PARTIAL if secondary_missing else DeviceHealth.OK
-        else:
-            part = PartNumber(raw="", family=ControllerFamily.UNKNOWN)
-            # No part number → no SKU decode; capability table degrades
-            # to the UNKNOWN family prior (NONE).
-            capabilities = capabilities_for_part_number(part)
-            health = DeviceHealth.FAILED
-
-        configured_protocol: ProtocolKind | None = None
-        if query_configured_protocol:
-            code = await self._safe_read_int(17009, timeout=timeout)
-            if code is not None:
-                configured_protocol = _PROTOCOL_CODE_TO_KIND.get(code)
-
-        loops = default_loops(part)
-        # Cache for ``self.loop(n)``'s eager validator. Identify is the
-        # canonical place that gets to set this — open() doesn't have
-        # the part number yet, and a SKU's loop count / capabilities
-        # never change mid-session.
-        self._loops = loops
-        self._capabilities = capabilities
-        info = DeviceInfo(
-            part_number=part,
-            hardware_id=hw_id,
-            firmware_id=fw_id,
-            serial_number=serial_str,
-            family=part.family,
-            protocol=self._session.protocol_kind,
-            address=self._session.address,
-            capabilities=capabilities,
-            serial_settings=self._serial_settings,
-            loops=loops,
-            health=health,
-            configured_protocol=configured_protocol,
+        # Device-neutral: the bound profile owns the family-specific
+        # identity sequence (EZ-ZONE PM reads 1009/1001/1002/serial;
+        # Series SD reads the numeric 10/11/13 + serial 7-8 + reg 18).
+        info = await self._session.profile.identify(
+            self,
+            timeout=timeout,
+            strict=strict,
+            query_configured_protocol=query_configured_protocol,
         )
-        # Cache the full identity so :meth:`snapshot` renders without I/O.
+        # Cache for ``self.loop(n)``'s eager validator and ``snapshot``.
+        # Identify is the canonical place that sets these — open()
+        # doesn't have the identity yet, and a device's loop count /
+        # capabilities never change mid-session.
+        self._loops = info.loops
+        self._capabilities = info.capabilities
         self._device_info = info
         return info
 
@@ -493,45 +481,3 @@ class Controller:
             capabilities=self._capabilities if self._capabilities is not None else Capability.NONE,
             availability_summary=availability,
         )
-
-    # --- Internals ------------------------------------------------------
-
-    async def _safe_read_int(
-        self,
-        name_or_id: str | int,
-        *,
-        timeout: float | None,
-    ) -> int | None:
-        """Read a numeric parameter, returning ``None`` on absence.
-
-        Used by :meth:`identify` so a missing identity field doesn't
-        torpedo the rest of the snapshot. Swallows protocol errors
-        (parameter absent / unsupported) and transport timeouts (no
-        reply on the bus); real connection / configuration errors
-        propagate so the user sees them.
-        """
-        try:
-            entry = await self.read_parameter(name_or_id, timeout=timeout)
-        except (WatlowProtocolError, WatlowTransportError):
-            return None
-        if isinstance(entry.value, int | float):
-            return int(entry.value)
-        return None
-
-    async def _safe_read_str(
-        self,
-        name_or_id: str | int,
-        *,
-        timeout: float | None,
-    ) -> str | None:
-        """Read a string parameter, returning ``None`` on absence.
-
-        Same swallow policy as :meth:`_safe_read_int`.
-        """
-        try:
-            entry = await self.read_parameter(name_or_id, timeout=timeout)
-        except (WatlowProtocolError, WatlowTransportError):
-            return None
-        if isinstance(entry.value, str):
-            return entry.value
-        return None

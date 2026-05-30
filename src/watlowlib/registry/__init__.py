@@ -15,10 +15,13 @@ from watlowlib.registry.enumerations import EnumerationRow, load_enumerations
 from watlowlib.registry.families import ControllerFamily, classify_family
 from watlowlib.registry.parameters import (
     PARAMETERS,
+    SD_PARAMETERS,
     ParameterRegistry,
     ParameterSpec,
     RwesFlag,
+    load_parameters,
     load_pm_parameters,
+    load_sd_parameters,
 )
 from watlowlib.registry.units import (
     Unit,
@@ -32,6 +35,7 @@ from watlowlib.registry.units import (
 __all__ = [
     "DEFAULT_ALIASES",
     "PARAMETERS",
+    "SD_PARAMETERS",
     "ControllerFamily",
     "EnumerationRow",
     "ParameterRegistry",
@@ -43,7 +47,9 @@ __all__ = [
     "coerce_unit",
     "display_code_for_unit",
     "load_enumerations",
+    "load_parameters",
     "load_pm_parameters",
+    "load_sd_parameters",
     "resolve_unit",
     "unit_from_display_code",
 ]

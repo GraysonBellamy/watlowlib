@@ -18,7 +18,7 @@ from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING
 
 from watlowlib.devices.factory import open_device
-from watlowlib.protocol.base import ProtocolKind
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.sync.portal import SyncPortal
 
 if TYPE_CHECKING:
@@ -33,8 +33,10 @@ if TYPE_CHECKING:
         ParameterEntry,
         Reading,
     )
+    from watlowlib.devices.profile import DeviceProfile
     from watlowlib.devices.session import Session
     from watlowlib.devices.snapshot import WatlowDeviceSnapshot
+    from watlowlib.protocol.base import ProtocolKind
     from watlowlib.registry.units import Unit
     from watlowlib.streaming.sample import Sample
     from watlowlib.transport.base import SerialSettings
@@ -289,6 +291,7 @@ class Watlow:
     def open(
         port: str,
         *,
+        profile: DeviceProfile = EZZONE_PROFILE,
         protocol: ProtocolKind | None = None,
         address: int = 1,
         serial_settings: SerialSettings | None = None,
@@ -302,15 +305,18 @@ class Watlow:
         (modulo the portal plumbing). The sync CM drives the async
         factory through a :class:`SyncPortal`; the portal is created
         per-call unless one is passed in via ``portal=``.
-        """
-        effective_protocol = protocol if protocol is not None else ProtocolKind.STDBUS
 
+        ``protocol=None`` adopts ``profile.default_protocol`` (Std Bus
+        for the default EZ-ZONE PM profile, Modbus RTU for the Series SD
+        profile) — same semantics as :func:`watlowlib.open_device`.
+        """
         with ExitStack() as stack:
             active_portal = portal if portal is not None else stack.enter_context(SyncPortal())
             controller = active_portal.call(
                 open_device,
                 port,
-                protocol=effective_protocol,
+                profile=profile,
+                protocol=protocol,
                 address=address,
                 serial_settings=serial_settings,
                 assert_wire_temperature_unit=assert_wire_temperature_unit,

@@ -51,9 +51,11 @@ import anyio
 from watlowlib._logging import get_logger
 from watlowlib.devices.controller import Controller
 from watlowlib.devices.models import DiscoveryResult
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.devices.session import Session
 from watlowlib.errors import (
     ErrorContext,
+    WatlowConfigurationError,
     WatlowConnectionError,
     WatlowError,
     WatlowProtocolUnsupportedError,
@@ -62,14 +64,13 @@ from watlowlib.errors import (
 )
 from watlowlib.protocol.base import ProtocolKind
 from watlowlib.protocol.client import make_protocol_client
-from watlowlib.registry.families import ControllerFamily
-from watlowlib.registry.parameters import PARAMETERS
 from watlowlib.transport.base import SerialSettings
 from watlowlib.transport.serial import SerialTransport
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from watlowlib.devices.profile import DeviceProfile
     from watlowlib.transport.base import Transport
 
 __all__ = [
@@ -94,6 +95,18 @@ DEFAULT_DISCOVERY_PROTOCOLS: tuple[ProtocolKind, ...] = (
     ProtocolKind.MODBUS_RTU,
 )
 
+#: Valid bus-address range per wire protocol. Std Bus addresses ride
+#: the BACnet MS/TP MAC byte (``1..16`` → MAC ``0x10..0x1F``); Modbus
+#: RTU slave addresses span ``1..247``. Discovery pre-validates an
+#: address against this range *before* any I/O so an out-of-range
+#: address emits a typed ``ok=False`` row rather than aborting the scan
+#: deep in :func:`addr_to_mac` (which used to raise a bare
+#: ``ValueError`` uncaught by the dispatch path).
+_PROTOCOL_ADDRESS_RANGE: dict[ProtocolKind, tuple[int, int]] = {
+    ProtocolKind.STDBUS: (1, 16),
+    ProtocolKind.MODBUS_RTU: (1, 247),
+}
+
 #: Per-probe budget. Tight enough that a wrong-baud / wrong-protocol
 #: combo bails after one bus turn-around; generous enough to cover a
 #: 9600 baud RS-485 turn-around plus the four sub-reads
@@ -109,6 +122,7 @@ async def find_devices(
     addresses: Sequence[int] | None = None,
     baudrates: Sequence[int] | None = None,
     protocols: Sequence[ProtocolKind] | None = None,
+    profiles: Sequence[DeviceProfile] | None = None,
     serial_template: SerialSettings | None = None,
     per_probe_timeout_s: float = _DEFAULT_PROBE_TIMEOUT_S,
 ) -> list[DiscoveryResult]:
@@ -128,7 +142,17 @@ async def find_devices(
             :data:`DEFAULT_DISCOVERY_BAUDRATES`.
         protocols: Wire protocols to probe. Defaults to
             :data:`DEFAULT_DISCOVERY_PROTOCOLS`. ``ProtocolKind.AUTO``
-            is not accepted here (one row per concrete probe).
+            is not accepted here (one row per concrete probe). Ignored
+            when ``profiles`` is given.
+        profiles: Device profiles to probe. When given, discovery
+            iterates profiles instead of ``protocols`` — each profile
+            contributes its own ``default_protocol``, factory serial
+            framing (so the Series SD's 8-N-1 is used, not the PM
+            Modbus 8-E-1), parameter registry, and identity strategy.
+            Pass :data:`~watlowlib.devices.profile.DEVICE_PROFILES` to
+            sweep for every known device type (PM over Std Bus + SD over
+            Modbus). ``None`` (default) keeps the historical
+            protocol-centric scan against the EZ-ZONE PM profile.
         serial_template: Optional :class:`SerialSettings` whose
             ``parity`` / ``bytesize`` / ``stopbits`` / ``rtscts`` /
             ``xonxoff`` / ``exclusive`` fields override the
@@ -172,22 +196,34 @@ async def find_devices(
     resolved_ports = await _resolve_ports(ports)
     resolved_addresses = tuple(addresses) if addresses is not None else DEFAULT_DISCOVERY_ADDRESSES
     resolved_baudrates = tuple(baudrates) if baudrates is not None else DEFAULT_DISCOVERY_BAUDRATES
-    resolved_protocols = tuple(protocols) if protocols is not None else DEFAULT_DISCOVERY_PROTOCOLS
 
-    if ProtocolKind.AUTO in resolved_protocols:
-        from watlowlib.errors import WatlowConfigurationError  # noqa: PLC0415 — cold path
-
-        raise WatlowConfigurationError(
-            "find_devices does not accept ProtocolKind.AUTO; pass concrete "
-            "protocols (STDBUS, MODBUS_RTU). Auto-detection is a single-port "
-            "API on open_device.",
+    # Build the per-probe plan: one entry per (protocol, profile,
+    # framing_base). ``profiles`` (if given) drives the device type,
+    # protocol, and factory framing per probe; otherwise we keep the
+    # historical protocol-centric scan against the EZ-ZONE PM profile,
+    # taking framing from ``SerialSettings.factory_for`` (None below).
+    plan: tuple[tuple[ProtocolKind, DeviceProfile, SerialSettings | None], ...]
+    if profiles is not None:
+        plan = tuple((p.default_protocol, p, p.default_serial) for p in profiles)
+    else:
+        resolved_protocols = (
+            tuple(protocols) if protocols is not None else DEFAULT_DISCOVERY_PROTOCOLS
         )
+        if ProtocolKind.AUTO in resolved_protocols:
+            from watlowlib.errors import WatlowConfigurationError  # noqa: PLC0415 — cold path
+
+            raise WatlowConfigurationError(
+                "find_devices does not accept ProtocolKind.AUTO; pass concrete "
+                "protocols (STDBUS, MODBUS_RTU). Auto-detection is a single-port "
+                "API on open_device.",
+            )
+        plan = tuple((protocol, EZZONE_PROFILE, None) for protocol in resolved_protocols)
 
     results: list[DiscoveryResult] = []
     dead_ports: set[str] = set()
     for port in resolved_ports:
         for baud in resolved_baudrates:
-            for protocol in resolved_protocols:
+            for protocol, profile, framing_base in plan:
                 if port in dead_ports:
                     # Emit one row per planned address so callers see
                     # the same cartesian-product shape regardless of
@@ -219,11 +255,13 @@ async def find_devices(
                     baudrate=baud,
                     protocol=protocol,
                     template=serial_template,
+                    framing_base=framing_base,
                 )
                 rows, port_died = await _probe_combo(
                     port=port,
                     baudrate=baud,
                     protocol=protocol,
+                    profile=profile,
                     addresses=resolved_addresses,
                     serial_settings=settings,
                     timeout_s=per_probe_timeout_s,
@@ -256,17 +294,23 @@ def _build_settings(
     baudrate: int,
     protocol: ProtocolKind,
     template: SerialSettings | None,
+    framing_base: SerialSettings | None = None,
 ) -> SerialSettings:
     """Build :class:`SerialSettings` for one (port, baudrate, protocol).
 
-    Starts from the protocol's factory framing
-    (:meth:`SerialSettings.factory_for`) so a Modbus probe inherits
-    the EZ-ZONE PM Modbus default parity (8-E-1) and a Std Bus probe
-    inherits 8-N-1. When the caller passes ``template``, its parity /
-    bytesize / stopbits / flow-control fields override the factory
-    framing; ``port`` and ``baudrate`` are always overwritten.
+    Starts from ``framing_base`` (a profile's ``default_serial``, e.g.
+    the Series SD's 8-N-1) when given, else the protocol's factory
+    framing (:meth:`SerialSettings.factory_for`) so a Modbus probe
+    inherits the EZ-ZONE PM Modbus default parity (8-E-1) and a Std Bus
+    probe inherits 8-N-1. When the caller passes ``template``, its
+    parity / bytesize / stopbits / flow-control fields override the
+    base framing; ``port`` and ``baudrate`` are always overwritten.
     """
-    factory = SerialSettings.factory_for(protocol, port=port)
+    factory = (
+        replace(framing_base, port=port)
+        if framing_base is not None
+        else SerialSettings.factory_for(protocol, port=port)
+    )
     if template is None:
         return replace(factory, baudrate=baudrate)
     return replace(
@@ -302,6 +346,7 @@ async def _probe_combo(
     port: str,
     baudrate: int,
     protocol: ProtocolKind,
+    profile: DeviceProfile,
     addresses: Sequence[int],
     serial_settings: SerialSettings,
     timeout_s: float,
@@ -368,6 +413,7 @@ async def _probe_combo(
                     port=port,
                     baudrate=baudrate,
                     protocol=protocol,
+                    profile=profile,
                     address=address,
                     serial_settings=serial_settings,
                     timeout_s=timeout_s,
@@ -393,6 +439,7 @@ async def _probe_address(
     port: str,
     baudrate: int,
     protocol: ProtocolKind,
+    profile: DeviceProfile,
     address: int,
     serial_settings: SerialSettings,
     timeout_s: float,
@@ -408,12 +455,33 @@ async def _probe_address(
     for the lifetime of the (port, baudrate, protocol) combo. Each
     probe disposes its own session + client on exit so the next
     address starts with a clean dispatch state.
+
+    Addresses outside the protocol's valid range short-circuit to a
+    typed ``ok=False`` row *before* any I/O — Std Bus ``addr_to_mac``
+    would otherwise raise mid-dispatch and (historically) abort the
+    whole scan.
     """
+    addr_range = _PROTOCOL_ADDRESS_RANGE.get(protocol)
+    if addr_range is not None and not (addr_range[0] <= address <= addr_range[1]):
+        lo, hi = addr_range
+        return DiscoveryResult(
+            ok=False,
+            port=port,
+            address=address,
+            baudrate=baudrate,
+            protocol=protocol,
+            device_info=None,
+            error=WatlowConfigurationError(
+                f"address {address} out of range for {protocol.value} (valid {lo}..{hi})",
+                context=ErrorContext(port=port, protocol=protocol, address=address),
+            ),
+            elapsed_s=0.0,
+        )
+
     client = make_protocol_client(protocol, transport)
     session = Session(
         client,
-        registry=PARAMETERS,
-        family=ControllerFamily.UNKNOWN,
+        profile=profile,
         address=address,
         port=transport.label,
     )

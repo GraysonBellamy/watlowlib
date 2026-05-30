@@ -164,7 +164,7 @@ def test_loader_rejects_missing_unit_kind() -> None:
         # unit_kind omitted on purpose
     }
     with pytest.raises(WatlowProtocolError, match="unit_kind"):
-        _build_spec(row)
+        _build_spec(row, family_hints=frozenset({ControllerFamily.PM}))
 
 
 def test_loader_rejects_unknown_unit_kind() -> None:
@@ -179,7 +179,7 @@ def test_loader_rejects_unknown_unit_kind() -> None:
         "rwes": "R",
     }
     with pytest.raises(WatlowProtocolError, match="kelvin"):
-        _build_spec(row)
+        _build_spec(row, family_hints=frozenset({ControllerFamily.PM}))
 
 
 # resolve_unit truth table — pure mapping, no I/O.

@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from watlowlib.commands.base import Command
+    from watlowlib.devices.profile import DeviceProfile
     from watlowlib.protocol.base import ProtocolClient
     from watlowlib.registry.families import ControllerFamily
     from watlowlib.registry.parameters import ParameterRegistry
@@ -73,27 +74,38 @@ class Session:
         self,
         client: ProtocolClient[Any, Any],
         *,
-        registry: ParameterRegistry,
-        family: ControllerFamily,
+        profile: DeviceProfile,
         address: int,
         port: str,
         wire_temperature_unit: Unit | None = None,
     ) -> None:
         self._client = client
-        self._registry = registry
-        self._family = family
+        # The profile is the device-type bundle (family + registry +
+        # framing + identity). ``registry`` / ``family`` stay exposed as
+        # thin delegating properties so the streaming / manager layers
+        # that learned those names keep working.
+        self._profile = profile
+        self._registry = profile.registry
+        self._family = profile.family
         self._address = address
         self._port = port
         self._availability: dict[str, Availability] = {}
-        # User-asserted scale of temperature values on the wire. Sourced
-        # from ``open_device(assert_wire_temperature_unit=...)``. Drives
-        # :class:`Reading.unit` and :class:`Sample.unit` for temperature
-        # parameters; when ``None``, those tags stay ``None`` rather
-        # than guess. The library makes **no** attempt to derive this
-        # from parameter 17050 — on at least one PM3 firmware revision
-        # 17050 is a label-only register that does not govern the wire
-        # scale. See ``docs/devices.md`` §Units.
-        self._wire_temperature_unit: Unit | None = wire_temperature_unit
+        # Scale of temperature values on the wire. An explicit
+        # ``wire_temperature_unit`` (from
+        # ``open_device(assert_wire_temperature_unit=...)``) wins;
+        # otherwise the profile's own ``wire_temperature_unit`` seeds it
+        # (the Series SD knows it speaks °F; the EZ-ZONE PM profile
+        # leaves it ``None`` so the user must assert). Drives
+        # :class:`Reading.unit` / :class:`Sample.unit` for temperature
+        # parameters; ``None`` means "do not guess". The library makes
+        # **no** attempt to derive this from PM parameter 17050 — on at
+        # least one PM3 firmware that register is label-only and does
+        # not govern the wire scale. See ``docs/devices.md`` §Units.
+        self._wire_temperature_unit: Unit | None = (
+            wire_temperature_unit
+            if wire_temperature_unit is not None
+            else profile.wire_temperature_unit
+        )
         self._wire_temperature_unit_warned: bool = False
         # Lazy cache of parameter 17050's reported value. Kept purely
         # as an inspection helper exposed via
@@ -145,8 +157,13 @@ class Session:
         return self._port
 
     @property
+    def profile(self) -> DeviceProfile:
+        """The device profile (family + registry + framing + identity)."""
+        return self._profile
+
+    @property
     def family(self) -> ControllerFamily:
-        """Best-known controller family for this session."""
+        """Best-known controller family for this session (delegates to the profile)."""
         return self._family
 
     @property
@@ -387,6 +404,20 @@ class Session:
             )
             self._wire_temperature_unit_warned = True
         return self._wire_temperature_unit
+
+    def set_wire_temperature_unit(self, unit: Unit | None) -> None:
+        """Set the wire temperature scale from an authoritative source.
+
+        Called by an identity strategy that has read the device's own
+        unit register (e.g. the Series SD reg 18). Unlike the PM path —
+        where the unit register can lie, so the value stays a user
+        assertion — this is the device telling us its comms scale
+        directly, so it is honest to adopt it. Resets the one-shot
+        "trusting user-asserted unit" warning since this value is
+        device-sourced, not user-asserted.
+        """
+        self._wire_temperature_unit = unit
+        self._wire_temperature_unit_warned = True
 
     async def comms_unit_label(self) -> Unit | None:
         """Return the value parameter 17050 reports for this session.

@@ -19,9 +19,9 @@ from __future__ import annotations
 from contextlib import ExitStack
 from typing import TYPE_CHECKING, Self
 
+from watlowlib.devices.profile import EZZONE_PROFILE
 from watlowlib.manager import DeviceResult, ErrorPolicy, WatlowManager
 from watlowlib.protocol.base import ProtocolKind
-from watlowlib.registry.families import ControllerFamily
 from watlowlib.sync.controller import (
     SyncController,
     unwrap_sync_controller,
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from watlowlib.devices.controller import Controller
+    from watlowlib.devices.profile import DeviceProfile
     from watlowlib.registry.units import Unit
     from watlowlib.sinks.base import SampleSink
     from watlowlib.streaming.recorder import AcquisitionSummary, OverflowPolicy
@@ -142,7 +143,7 @@ class SyncWatlowManager:
         protocol: ProtocolKind = ProtocolKind.STDBUS,
         address: int = 1,
         serial_settings: SerialSettings | None = None,
-        family: ControllerFamily = ControllerFamily.UNKNOWN,
+        profile: DeviceProfile = EZZONE_PROFILE,
         assert_wire_temperature_unit: Unit | str | None = None,
     ) -> SyncController:
         """Blocking :meth:`WatlowManager.add`.
@@ -160,7 +161,7 @@ class SyncWatlowManager:
             protocol=protocol,
             address=address,
             serial_settings=serial_settings,
-            family=family,
+            profile=profile,
             assert_wire_temperature_unit=assert_wire_temperature_unit,
         )
         wrapped = wrap_controller(async_controller, self.portal)

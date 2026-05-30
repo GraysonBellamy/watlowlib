@@ -140,7 +140,7 @@ class StdBusProtocolClient:
             WatlowFrameError: framing failure (bad preamble, CRC mismatch,
                 truncated body).
             WatlowTimeoutError: round-trip exceeded ``timeout``.
-            ValueError: ``address`` is outside ``1..16``.
+            WatlowValidationError: ``address`` is outside ``1..16``.
         """
         if self._disposed:
             raise WatlowConnectionError(

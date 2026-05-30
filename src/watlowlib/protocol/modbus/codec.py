@@ -32,6 +32,9 @@ _REGISTER_TYPE: dict[DataType, tuple[RegisterType, int]] = {
     DataType.S32: (RegisterType.INT32, 2),
     DataType.U32: (RegisterType.UINT32, 2),
     DataType.U16: (RegisterType.UINT16, 1),
+    # ``S16`` rides a single sign-extended INT16 register (Series SD
+    # power / percent: -10000..10000 → -100.00..100.00 %).
+    DataType.S16: (RegisterType.INT16, 1),
     DataType.PACKED: (RegisterType.UINT16, 1),
 }
 
@@ -73,12 +76,22 @@ def decode_words(
         _check_count(len(words), 1, "U8")
         return int(words[0]) & 0xFF
     if data_type is DataType.STRING:
-        return decode(
-            words,
-            type=RegisterType.STRING,
-            word_order=word_order,
-            byte_order=byte_order,
-        )
+        # ``anymodbus.decode_string`` does a strict ``raw.decode("ascii")``
+        # and raises ``UnicodeDecodeError`` on non-ASCII register bytes —
+        # which a foreign device (or a wrong-protocol probe) routinely
+        # returns. Catch it here and re-raise the typed protocol error so
+        # the dispatch path treats it like any other decode failure
+        # rather than letting a bare ``UnicodeDecodeError`` abort a scan.
+        try:
+            return decode(
+                words,
+                type=RegisterType.STRING,
+                word_order=word_order,
+                byte_order=byte_order,
+            )
+        except UnicodeDecodeError as exc:
+            msg = f"STRING decode failed: {exc}"
+            raise WatlowProtocolError(msg, context=_ctx()) from exc
     mapping = _REGISTER_TYPE.get(data_type)
     if mapping is None:
         msg = f"data type {data_type.name} has no Modbus decode rule"

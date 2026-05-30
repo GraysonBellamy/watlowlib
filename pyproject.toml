@@ -215,6 +215,7 @@ ignore = [
 "src/watlowlib/devices/discovery.py" = ["ASYNC109"]
 "src/watlowlib/devices/controller.py" = ["ASYNC109"]
 "src/watlowlib/devices/loop.py" = ["ASYNC109"]
+"src/watlowlib/devices/profile.py" = ["ASYNC109"]
 "src/watlowlib/manager.py" = ["ASYNC109"]
 "src/watlowlib/maintenance.py" = ["ASYNC109"]
 # Diagnostics / configure CLIs surface ``timeout=`` per-call (matching

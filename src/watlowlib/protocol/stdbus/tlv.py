@@ -35,6 +35,14 @@ class DataType(IntEnum):
     shares tag ``0x0F`` with ``Enumeration``. In every live capture so
     far the count byte is ``1`` (single 16-bit word). Multi-word
     behaviour is implemented but unverified.
+
+    ``S16`` (signed 16-bit, one register) is **not** a real Std Bus
+    wire tag — no Std Bus row maps to it, and the Std Bus
+    :func:`encode_value` / :func:`decode_value` switches raise on its
+    tag. It exists purely as a registry :class:`DataType` for Modbus
+    families (the Series SD stores signed 16-bit power / percent
+    values) and is given a deliberately out-of-band value (``0x86``)
+    so it can never collide with an on-the-wire Std Bus tag.
     """
 
     U8 = 0x01  # 1-byte unsigned (no length byte)
@@ -44,7 +52,7 @@ class DataType(IntEnum):
     FLOAT = 0x08  # 4-byte BE IEEE-754 (no length byte)
     STRING = 0x09  # length byte + ASCII (commonly NUL-terminated within length)
     PACKED = 0x0F  # count byte (= 16-bit words) + count*2 bytes BE
-    INT16 = 0x0F  # back-compat alias; PACKED with count=1 is the canonical enum / u16
+    S16 = 0x86  # signed 16-bit (1 register); Modbus-only — not a Std Bus wire tag
 
 
 def encode_value(type_tag: int, value: float | int | str | bytes) -> bytes:

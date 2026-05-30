@@ -28,6 +28,57 @@ async with await open_device(
     print(info.capabilities)
 ```
 
+## Device profiles
+
+A **device type** is exactly four things: a family, a parameter
+registry, the wire protocol + serial framing it speaks at the factory,
+and how to identify it. `watlowlib` bundles those into a frozen
+[`DeviceProfile`](api/devices.md) so the device type is an explicit,
+first-class object rather than an implicit "always EZ-ZONE PM"
+assumption.
+
+Two profiles ship:
+
+| Profile | Family | Default protocol | Default framing | Wire temp. unit |
+| ------- | ------ | ---------------- | --------------- | --------------- |
+| `EZZONE_PROFILE` | `PM` | Standard Bus | 38400 8-N-1 | `None` — you must assert it (PM firmware can misreport its own unit register; see [Units](#units)). |
+| `SERIES_SD_PROFILE` | `SD` | Modbus RTU | 9600 8-N-1 | `Unit.FAHRENHEIT` — the SD manual fixes Modbus temperatures to °F by default, and identity reads register 18 to confirm. |
+
+`open_device` takes the profile and derives everything else from it:
+
+```python
+from watlowlib import open_device, SERIES_SD_PROFILE
+
+# Series SD on COM11, Modbus address 10. protocol / serial_settings
+# default from the profile (Modbus RTU, 9600 8-N-1) — no need to spell
+# them out.
+async with await open_device("COM11", profile=SERIES_SD_PROFILE, address=10) as ctl:
+    pv = await ctl.read_pv()          # 68.2 °F  (S32 ÷1000)
+    sp = await ctl.read_setpoint()    # 62.96 °F
+    power = await ctl.read_parameter("output_power")  # 82.8 %  (signed S16 ÷100)
+```
+
+The default profile is `EZZONE_PROFILE`, so existing PM code is
+unchanged. `protocol=` / `serial_settings=` still override the profile
+defaults when you need a non-factory configuration.
+`WatlowManager.add(..., profile=...)` lets one manager mix an SD and a
+PM on different ports.
+
+!!! note "Series SD register scaling"
+    SD registers store raw integers and imply decimal places: process
+    value / setpoint at three (÷1000), power / percent at two (÷100).
+    The registry carries this as `ParameterSpec.scale` and applies it on
+    the Modbus read/write path only — `read_pv()` returns `68.2`, and
+    `set_setpoint(62.96)` lowers to the raw word `62960`. Unscaled enum
+    registers (units, input error) stay plain `int`s.
+
+!!! warning "EEPROM wear on high-rate SD writes"
+    The SD persists every register write to EEPROM by default. A ramping
+    setpoint or tuning loop can wear it out. Call
+    `await ctl.set_persistent_writes(False, confirm=True)` once after
+    each power-up to keep subsequent writes in RAM only (the SD resets
+    register 17 to `1` on every power cycle).
+
 ## Family classification
 
 Family is decided by the leading characters of the part-number string:
@@ -38,6 +89,7 @@ Family is decided by the leading characters of the part-number string:
 | `RM*`   | `ControllerFamily.RM`           | EZ-ZONE RM. Discriminator only — no per-digit decoder yet. |
 | `ST*`   | `ControllerFamily.ST`           | EZ-ZONE ST. Discriminator only. |
 | `F4T*`  | `ControllerFamily.F4T`          | F4T. Discriminator only. |
+| `SD*`   | `ControllerFamily.SD`           | Series SD PID controller (Modbus RTU only; bare-register map, no Std Bus). Has no ASCII model-name register — identity is numeric (see [Device profiles](#device-profiles)). |
 | anything else | `ControllerFamily.UNKNOWN` | First-class case — no priors, every call becomes a live probe. |
 
 [`classify_family(part_number)`](../src/watlowlib/registry/families.py)

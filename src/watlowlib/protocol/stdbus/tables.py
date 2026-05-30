@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+from watlowlib.errors import WatlowValidationError
+
 __all__ = [
     "ADDR_OFFSET",
     "DIR_REQUEST",
@@ -52,10 +54,14 @@ def addr_to_mac(addr: int) -> int:
     """Map a Standard Bus address (``1..16``) to its MS/TP MAC.
 
     Raises:
-        ValueError: ``addr`` is outside ``1..16``.
+        WatlowValidationError: ``addr`` is outside ``1..16``. Typed
+            (not a bare :class:`ValueError`) so callers in the dispatch
+            / discovery path can catch it as a :class:`WatlowError` and
+            surface a structured ``ok=False`` result rather than
+            aborting a whole scan.
     """
     if not 1 <= addr <= 16:
-        raise ValueError(f"Standard Bus address out of range 1..16: {addr}")
+        raise WatlowValidationError(f"Standard Bus address out of range 1..16: {addr}")
     return ADDR_OFFSET + addr
 
 
@@ -63,10 +69,10 @@ def mac_to_addr(mac: int) -> int:
     """Map an MS/TP MAC (``0x10..0x1F``) back to its Standard Bus address.
 
     Raises:
-        ValueError: ``mac`` is outside the controller range.
+        WatlowValidationError: ``mac`` is outside the controller range.
     """
     if not 0x10 <= mac <= 0x1F:
-        raise ValueError(f"MAC out of expected controller range: 0x{mac:02X}")
+        raise WatlowValidationError(f"MAC out of expected controller range: 0x{mac:02X}")
     return mac - ADDR_OFFSET
 
 

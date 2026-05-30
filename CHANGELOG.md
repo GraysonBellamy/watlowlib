@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-05-30
+
+### Added (Watlow Series SD support)
+
+- **`watlowlib.DeviceProfile`** — first-class device type bundling a
+  family, parameter registry, default protocol + serial framing, and an
+  identity strategy. Two profiles ship: **`EZZONE_PROFILE`** (the
+  reference EZ-ZONE PM; preserves all prior behaviour) and
+  **`SERIES_SD_PROFILE`** (Watlow Series SD over Modbus RTU). The full
+  set is **`DEVICE_PROFILES`**. `IdentifyStrategy` is the `Protocol`
+  identity functions implement.
+- **`watlowlib.SD_PARAMETERS`** — parameter registry for the Series SD,
+  loaded from the new bundled `data/sd_parameters.json` (core Home /
+  Operations registers; verified against `sd_manual.txt` rev F and the
+  extracted parameter tables). Process value / setpoint scale ÷1000;
+  power / percent ÷100; temperatures are °F over the wire by default.
+- **`open_device(..., profile=EZZONE_PROFILE)`** — the device type is
+  now selected by profile. `protocol=None` (the new default) adopts the
+  profile's factory protocol (Std Bus for PM, Modbus RTU for SD), and
+  `serial_settings=None` adopts its factory framing (PM Std Bus 38400
+  8-N-1; SD Modbus 9600 8-N-1). `WatlowController.open`,
+  `WatlowManager.add`, `SyncWatlowManager.add`, and the
+  `watlowlib.testing` seam (`open_test_controller`,
+  `controller_from_fixture`) all gain the same `profile=` argument.
+- **`Controller.set_persistent_writes(enabled, *, confirm=True)`** —
+  toggles Series SD register 17 (NV-memory write enable). Write `False`
+  before a burst of setpoint writes to keep them in RAM and spare the
+  EEPROM (the SD resets the register to `1` on every power cycle).
+- **`find_devices(..., profiles=DEVICE_PROFILES)`** — profile-driven
+  discovery. Each profile contributes its own protocol, factory framing
+  (so the SD's 8-N-1 is probed, not the PM Modbus 8-E-1), registry, and
+  identity strategy, so a scan can surface both PM and SD controllers.
+- **`ControllerFamily.SD`** and `classify_family("SD…") → SD`.
+- **`DataType.S16`** — signed 16-bit single-register wire type (Series
+  SD power / percent registers), with a guarded engineering-unit
+  `ParameterSpec.scale` applied on the Modbus read/write path only
+  (Std Bus PM reads stay unscaled, integers stay integers).
+
+### Changed
+
+- **`Session(profile=…)`** replaces the separate `registry=` / `family=`
+  constructor arguments; `session.registry` / `session.family` remain as
+  read-only delegating properties, plus a new `session.profile`.
+- **`Controller.identify()`** is now device-neutral and delegates to the
+  bound profile's identity strategy (PM logic unchanged; SD reads its
+  numeric identity registers 10/11/13 + serial 7-8 + units reg 18).
+- **`find_devices` / `addr_to_mac`** — an out-of-range bus address now
+  yields a typed `ok=False` `DiscoveryResult` (`WatlowConfigurationError`)
+  instead of aborting the whole scan; `addr_to_mac` raises
+  `WatlowValidationError` rather than a bare `ValueError`.
+
+### Fixed
+
+- The Modbus `STRING` decode path now wraps `anymodbus`'s strict-ASCII
+  `UnicodeDecodeError` as a typed `WatlowProtocolError`, so a
+  foreign / wrong-protocol device can no longer abort a discovery scan.
+- Removed the dead `DataType.INT16 = 0x0F` alias of `PACKED` (it decoded
+  *unsigned* — a trap for "signed 16-bit").
+- `ParameterRegistry` now rebinds specs via `dataclasses.replace`, so a
+  new `ParameterSpec` field can never be silently dropped.
+
 ## [0.6.0] — 2026-05-15
 
 ### Added (Unified Device-Library API)

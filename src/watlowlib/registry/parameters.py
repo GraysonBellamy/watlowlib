@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from importlib.resources import files
 from types import MappingProxyType
@@ -36,14 +36,18 @@ if TYPE_CHECKING:
 
 __all__ = [
     "PARAMETERS",
+    "SD_PARAMETERS",
     "ParameterRegistry",
     "ParameterSpec",
     "RwesFlag",
+    "load_parameters",
     "load_pm_parameters",
+    "load_sd_parameters",
 ]
 
 _DATA_PACKAGE = "watlowlib.data"
 _PM_FILENAME = "pm_parameters.json"
+_SD_FILENAME = "sd_parameters.json"
 
 
 class RwesFlag(StrEnum):
@@ -73,6 +77,7 @@ class RwesFlag(StrEnum):
 _DATA_TYPE_MAP: dict[str, DataType] = {
     "IEEE Float": DataType.FLOAT,
     "signed 32-bit": DataType.S32,
+    "signed 16-bit": DataType.S16,
     "unsigned 32-bit": DataType.U32,
     "unsigned 16-bit": DataType.U16,
     "2 - unsigned 16 bit": DataType.U16,
@@ -144,6 +149,21 @@ class ParameterSpec:
     range_max: float | None = None
     default: object | None = None
     family_hints: frozenset[ControllerFamily] = field(default_factory=_empty_family_hints)
+    scale: float = 1.0
+    """Engineering-unit scale factor for the **Modbus** decode / encode path.
+
+    The wire stores raw integers (e.g. the Series SD reports a process
+    value of ``68421`` for ``68.421 °F``); ``scale`` is the multiplier
+    that turns the raw word into engineering units on read
+    (``value * scale``) and the divisor that turns engineering units
+    back into raw words on write (``round(value / scale)``).
+
+    ``1.0`` (the default) means *no scaling* — and is applied as a
+    strict identity: the read path skips the multiply entirely when
+    ``scale == 1.0`` so an integer parameter stays an ``int`` rather
+    than being promoted to ``float`` by ``int * 1.0``. Std Bus rows are
+    never scaled (the Std Bus variant ignores this field).
+    """
 
 
 # Attempts to coax the messy JSON ``range`` field ("0 to 9999",
@@ -212,7 +232,7 @@ def _register_count_for(data_type: DataType, raw: dict[str, Any]) -> int:
     """
     if data_type in (DataType.FLOAT, DataType.S32, DataType.U32):
         return 2
-    if data_type in (DataType.U16, DataType.U8, DataType.PACKED):
+    if data_type in (DataType.U16, DataType.S16, DataType.U8, DataType.PACKED):
         return 1
     if data_type is DataType.STRING:
         # The PM3 part-number string is 16 ASCII bytes = 8 16-bit
@@ -222,13 +242,40 @@ def _register_count_for(data_type: DataType, raw: dict[str, Any]) -> int:
     return 1
 
 
-def _build_spec(raw: dict[str, Any]) -> ParameterSpec | None:
-    """Convert one ``pm_parameters.json`` row into a :class:`ParameterSpec`.
+def _build_spec(
+    raw: dict[str, Any],
+    *,
+    family_hints: frozenset[ControllerFamily],
+) -> ParameterSpec | None:
+    """Convert one parameter-registry JSON row into a :class:`ParameterSpec`.
+
+    Family-neutral: drives both the PM (``class_id`` / ``member_id``
+    Std-Bus selector) and the Series SD (bare Modbus register, no
+    class/member scheme) JSON shapes.
 
     Returns ``None`` for rows we deliberately skip — those with a
     ``None``/``"None"`` ``data_type`` (placeholder rows) or an
     unrecognised ``rwes`` flag (a few member-based rows where the
     field is empty).
+
+    Args:
+        raw: One JSON row.
+        family_hints: Family hint set stamped onto the produced spec
+            (``{PM}`` for the PM registry, ``{SD}`` for the SD one).
+
+    JSON fields honoured beyond the PM set:
+
+    - ``canonical`` (optional): verbatim canonical name, bypassing the
+      :func:`_canonical_name` heuristic. SD rows set this to
+      ``"process_value"`` / ``"setpoint"`` / ``"output_power"`` /
+      ``"units"`` so ``read_pv`` / ``read_setpoint`` and the
+      ``pv`` / ``sp`` aliases resolve.
+    - ``scale`` (optional, default ``1.0``): Modbus engineering-unit
+      scale factor (see :attr:`ParameterSpec.scale`).
+    - ``class_id`` / ``member_id`` (optional, default ``0``): the SD
+      map has no class*1000+member scheme — it addresses bare Modbus
+      registers, so these are absent and ``parameter_id`` is the
+      register number itself.
     """
     raw_type = raw.get("data_type")
     if raw_type in (None, "None"):
@@ -247,8 +294,8 @@ def _build_spec(raw: dict[str, Any]) -> ParameterSpec | None:
 
     # ``unit_kind`` is required on every loadable row. Fail loud (per
     # design's "fail loud, fail typed" rule) so a typo or missing edit
-    # in pm_parameters.json surfaces in CI rather than producing rows
-    # that silently classify as the wrong family at read time.
+    # in the JSON surfaces in CI rather than producing rows that
+    # silently classify as the wrong family at read time.
     raw_unit_kind = raw.get("unit_kind")
     if raw_unit_kind is None:
         raise WatlowProtocolError(
@@ -261,8 +308,11 @@ def _build_spec(raw: dict[str, Any]) -> ParameterSpec | None:
             f"parameter row {parameter_id} has unknown unit_kind: {raw_unit_kind!r}",
         ) from exc
 
-    cls = int(raw["class_id"])
-    member = int(raw["member_id"])
+    # PM rows carry a class*1000+member Std-Bus selector; SD rows omit
+    # both (the register *is* the parameter id). ``_coerce_int`` maps a
+    # missing / "N/A" field to 0.
+    cls = _coerce_int(raw.get("class_id"))
+    member = _coerce_int(raw.get("member_id"))
     default_instance = int(raw.get("instance_id") or 1)
     max_instance = int(raw.get("max_instance") or 1)
 
@@ -270,12 +320,12 @@ def _build_spec(raw: dict[str, Any]) -> ParameterSpec | None:
     absolute_addr = _coerce_int(raw.get("absolute_addr"))
     register_count = _register_count_for(data_type, raw)
 
-    canonical = _canonical_name(str(raw["name"]))
+    # A verbatim ``canonical`` field wins over the name heuristic so SD
+    # rows bind the public workhorse names directly.
+    raw_canonical = raw.get("canonical")
+    canonical = str(raw_canonical) if raw_canonical else _canonical_name(str(raw["name"]))
     range_min, range_max = _parse_range(raw.get("range"))
-
-    # PM3 is the only family backed by JSON today; future families
-    # land their own JSON and contribute their own family hint set.
-    family_hints = frozenset({ControllerFamily.PM})
+    scale = float(raw.get("scale") or 1.0)
 
     return ParameterSpec(
         parameter_id=parameter_id,
@@ -296,17 +346,39 @@ def _build_spec(raw: dict[str, Any]) -> ParameterSpec | None:
         range_max=range_max,
         default=raw.get("default"),
         family_hints=family_hints,
+        scale=scale,
     )
 
 
-def load_pm_parameters() -> tuple[ParameterSpec, ...]:
-    """Load and return every PM parameter spec from the bundled JSON."""
-    raw_text = files(_DATA_PACKAGE).joinpath(_PM_FILENAME).read_text(encoding="utf-8")
+def load_parameters(
+    filename: str,
+    *,
+    family: ControllerFamily,
+    family_hints: frozenset[ControllerFamily] | None = None,
+) -> tuple[ParameterSpec, ...]:
+    """Load every parameter spec from a bundled registry JSON file.
+
+    Args:
+        filename: Bare filename inside the :mod:`watlowlib.data` package
+            (e.g. ``"pm_parameters.json"`` / ``"sd_parameters.json"``).
+        family: The controller family this file describes. Used as the
+            default single-member ``family_hints`` when ``family_hints``
+            is not given.
+        family_hints: Explicit family-hint set stamped on every produced
+            spec. Defaults to ``frozenset({family})``.
+
+    Returns:
+        One :class:`ParameterSpec` per loadable row, first occurrence
+        winning on duplicate ``parameter_id`` (PM Map 1 / Map 2 sheets
+        repeat ids with differing instance metadata).
+    """
+    hints = family_hints if family_hints is not None else frozenset({family})
+    raw_text = files(_DATA_PACKAGE).joinpath(filename).read_text(encoding="utf-8")
     rows: list[dict[str, Any]] = json.loads(raw_text)
     out: list[ParameterSpec] = []
     seen_ids: set[int] = set()
     for raw in rows:
-        spec = _build_spec(raw)
+        spec = _build_spec(raw, family_hints=hints)
         if spec is None:
             continue
         if spec.parameter_id in seen_ids:
@@ -318,6 +390,16 @@ def load_pm_parameters() -> tuple[ParameterSpec, ...]:
         seen_ids.add(spec.parameter_id)
         out.append(spec)
     return tuple(out)
+
+
+def load_pm_parameters() -> tuple[ParameterSpec, ...]:
+    """Load and return every PM parameter spec from the bundled JSON."""
+    return load_parameters(_PM_FILENAME, family=ControllerFamily.PM)
+
+
+def load_sd_parameters() -> tuple[ParameterSpec, ...]:
+    """Load and return every Series SD parameter spec from the bundled JSON."""
+    return load_parameters(_SD_FILENAME, family=ControllerFamily.SD)
 
 
 # Canonical names we explicitly bind from PM parameter IDs. The JSON
@@ -349,11 +431,19 @@ class ParameterRegistry:
         specs: tuple[ParameterSpec, ...],
         *,
         aliases: Mapping[str, str] = DEFAULT_ALIASES,
+        name_overrides: Mapping[int, str] = _NAME_OVERRIDES,
     ) -> None:
+        # ``name_overrides`` promotes parameter ids to short canonical
+        # names. The PM registry uses the bundled :data:`_NAME_OVERRIDES`
+        # (its auto-derived names are verbose); the SD registry passes
+        # ``{}`` and instead carries verbatim ``canonical`` names baked
+        # into each spec at load time. Passing the PM table to a non-PM
+        # registry would mis-claim collision keys (e.g. "units") for PM
+        # parameter ids that don't exist in that registry.
         # Apply name overrides + collect aliases per spec.
         rebound: list[ParameterSpec] = []
         for spec in specs:
-            override = _NAME_OVERRIDES.get(spec.parameter_id)
+            override = name_overrides.get(spec.parameter_id)
             name = override or spec.name
             spec_aliases: set[str] = set()
             for alias, target in aliases.items():
@@ -364,26 +454,15 @@ class ParameterRegistry:
                 # callers that learn it from the JSON still resolve.
                 spec_aliases.add(spec.name)
             if name != spec.name or spec_aliases:
-                spec = ParameterSpec(  # noqa: PLW2901 — frozen dataclass rebind
-                    parameter_id=spec.parameter_id,
+                # ``dataclasses.replace`` copies every other field
+                # verbatim — including any field added to ParameterSpec
+                # later (``scale``, future per-row overrides). A manual
+                # field-by-field rebind would silently drop new fields,
+                # so never reintroduce one here.
+                spec = replace(  # noqa: PLW2901 — frozen dataclass rebind
+                    spec,
                     name=name,
                     aliases=frozenset(spec_aliases),
-                    data_type=spec.data_type,
-                    unit_kind=spec.unit_kind,
-                    rwes=spec.rwes,
-                    safety=spec.safety,
-                    cls=spec.cls,
-                    member=spec.member,
-                    default_instance=spec.default_instance,
-                    max_instance=spec.max_instance,
-                    relative_addr=spec.relative_addr,
-                    absolute_addr=spec.absolute_addr,
-                    register_count=spec.register_count,
-                    word_order=spec.word_order,
-                    range_min=spec.range_min,
-                    range_max=spec.range_max,
-                    default=spec.default,
-                    family_hints=spec.family_hints,
                 )
             rebound.append(spec)
 
@@ -395,9 +474,7 @@ class ParameterRegistry:
         # entry targets one of those collision names, the override row
         # wins — otherwise the JSON's iteration order silently decided
         # which spec a public name like ``"units"`` resolved to.
-        override_owner: dict[str, int] = {
-            name.lower(): pid for pid, name in _NAME_OVERRIDES.items()
-        }
+        override_owner: dict[str, int] = {name.lower(): pid for pid, name in name_overrides.items()}
         by_id: dict[int, ParameterSpec] = {}
         by_name: dict[str, ParameterSpec] = {}
         for spec in self._specs:
@@ -491,4 +568,22 @@ def _build_default_registry() -> ParameterRegistry:
         ) from exc
 
 
+def _build_sd_registry() -> ParameterRegistry:
+    """Build the Series SD registry.
+
+    SD rows carry verbatim ``canonical`` names, so the PM-specific
+    :data:`_NAME_OVERRIDES` table is **not** applied (passing it would
+    mis-claim collision keys like ``"units"`` for PM ids absent here).
+    The default alias table still resolves (``pv`` → ``process_value``,
+    ``sp`` → ``setpoint``).
+    """
+    try:
+        return ParameterRegistry(load_sd_parameters(), name_overrides={})
+    except (OSError, json.JSONDecodeError) as exc:
+        raise WatlowProtocolError(
+            f"failed to load SD parameter registry: {exc}",
+        ) from exc
+
+
 PARAMETERS: ParameterRegistry = _build_default_registry()
+SD_PARAMETERS: ParameterRegistry = _build_sd_registry()
