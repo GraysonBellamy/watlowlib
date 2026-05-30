@@ -1,3 +1,7 @@
+---
+description: Test Watlow code without hardware — FakeTransport, FakeSlave, fixture records, load_fixture, controller_from_fixture, and hardware-tier markers in watlowlib.testing.
+---
+
 # Testing
 
 `watlowlib` ships first-class testing utilities so callers can build

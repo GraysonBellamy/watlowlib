@@ -1,3 +1,7 @@
+---
+description: watlowlib.sync — sync facade over the async core; every async method has a sync parity routed through a SyncPortal BlockingPortal.
+---
+
 # `watlowlib.sync`
 
 Sync facade over the async core. Every async method has a sync parity

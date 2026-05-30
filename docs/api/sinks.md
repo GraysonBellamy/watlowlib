@@ -1,3 +1,7 @@
+---
+description: watlowlib.sinks — the SampleSink Protocol, pipe() glue, sample_to_row(), and first-party sinks (InMemory, CSV, JSONL, SQLite, Parquet, Postgres).
+---
+
 # `watlowlib.sinks`
 
 The `SampleSink` Protocol, `pipe()` glue, `sample_to_row()` flatten,

@@ -1,3 +1,7 @@
+---
+description: Continuous data capture with watlowlib — the recorder, first-party sinks (CSV, JSONL, SQLite, Parquet, Postgres, InMemory), and structured log events.
+---
+
 # Logging and acquisition
 
 For continuous data capture, `watlowlib` provides a recorder that

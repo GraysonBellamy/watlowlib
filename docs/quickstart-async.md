@@ -1,3 +1,7 @@
+---
+description: Async quickstart for watlowlib — open a Watlow controller, read the process value, write a setpoint, and run identify, with a hardware-free FakeTransport example.
+---
+
 # Quickstart — async
 
 The async core is `open_device`, `Controller`, parameter read / write,

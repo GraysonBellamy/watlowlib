@@ -1,3 +1,7 @@
+---
+description: The cross-protocol parameter registry in watlowlib — canonical names for EZ-ZONE PM parameters mapped to Standard Bus (class/member/instance) and Modbus registers.
+---
+
 # Parameters
 
 Watlow controllers expose every settable / readable value as a

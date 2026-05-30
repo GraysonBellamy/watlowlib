@@ -1,3 +1,7 @@
+---
+description: Install watlowlib from PyPI for async Watlow temperature controller I/O on Python 3.13+, with optional Parquet and Postgres sink extras.
+---
+
 # Installation
 
 ```bash

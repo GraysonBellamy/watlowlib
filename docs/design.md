@@ -1,3 +1,7 @@
+---
+description: Architectural design of watlowlib — a protocol-neutral Controller facade backed by a Session that dispatches through pluggable Standard Bus and Modbus RTU clients.
+---
+
 # watlowlib — package design
 
 A Python driver for Watlow temperature controllers, modeled on `alicatlib`

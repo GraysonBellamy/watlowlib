@@ -1,3 +1,7 @@
+---
+description: watlowlib.maintenance — persistent-write helpers change_baud, change_modbus_address, change_stdbus_address, change_protocol_mode; all require confirm=True.
+---
+
 # `watlowlib.maintenance`
 
 Persistent-write helpers for one-shot device configuration:

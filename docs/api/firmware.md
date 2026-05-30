@@ -1,3 +1,7 @@
+---
+description: watlowlib.firmware — FirmwareVersion orderable wrapper used by Command.min_firmware metadata for per-firmware gating.
+---
+
 # `watlowlib.firmware`
 
 `FirmwareVersion` — orderable major.minor.patch wrapper used by

@@ -1,3 +1,7 @@
+---
+description: watlowlib.commands — the Command[Req, Resp] descriptor, per-protocol variants, parameter read/write workhorses, and per-loop helpers.
+---
+
 # `watlowlib.commands`
 
 The `Command[Req, Resp]` descriptor, per-protocol variants, the

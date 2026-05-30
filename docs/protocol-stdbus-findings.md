@@ -1,3 +1,7 @@
+---
+description: Empirical Watlow Standard Bus findings reverse-engineered against a live EZ-ZONE PM3 — frame builder/parser, payload codec, and type-tag table verified on the wire.
+---
+
 # Watlow Standard Bus — empirical findings
 
 Companion to [`protocol-stdbus.md`](protocol-stdbus.md) (literature
