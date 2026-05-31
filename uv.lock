@@ -20,15 +20,15 @@ wheels = [
 
 [[package]]
 name = "anymodbus"
-version = "0.1.1"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "anyserial" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/81/2a241539dfb4327fce85edfe379f4ba0f272455c3b33f1a8cb8d6dbf2589/anymodbus-0.1.1.tar.gz", hash = "sha256:771ae2212913f3aaefeaf236f8d06d77484d0c249a182621e3d2c6f982a99487", size = 94990, upload-time = "2026-04-26T13:46:51.541Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/d2/40d8f9009ccaacd16f0b4d46872d58ce30cb506f74df4c368c24f4c77f1a/anymodbus-0.2.0.tar.gz", hash = "sha256:32e7da29abc0f847ab8834791ab8d9d66aae72e90720a3ec4b18e35221eac873", size = 111228, upload-time = "2026-05-30T19:04:42.308Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/ea/32864d0b3f96197e9aa39d54793d3c4327958035f2119c00343f2f03ee69/anymodbus-0.1.1-py3-none-any.whl", hash = "sha256:24c57ef3cbc8c8f6b19c60ab7771219261d12f0f9a186aa00f0e99d4f96edc5b", size = 55043, upload-time = "2026-04-26T13:46:49.817Z" },
+    { url = "https://files.pythonhosted.org/packages/13/30/2728298110461425a82af42690e9f63b09339fd12f0db2b7a723a1a65cd6/anymodbus-0.2.0-py3-none-any.whl", hash = "sha256:28c5ce49fcd9da9b77f4719cbe47f64c7cb7abdb34ae01d1b286acf641780f93", size = 67483, upload-time = "2026-05-30T19:04:40.992Z" },
 ]
 
 [[package]]
@@ -1082,7 +1082,7 @@ type = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.13" },
-    { name = "anymodbus", specifier = ">=0.1.1,<0.2" },
+    { name = "anymodbus", specifier = ">=0.1.1,<0.3" },
     { name = "anyserial", specifier = ">=0.1.2,<0.2" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30" },
     { name = "mkdocstrings-python", marker = "extra == 'docs'", specifier = ">=1.12" },
