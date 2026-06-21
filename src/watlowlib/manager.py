@@ -470,7 +470,7 @@ class WatlowManager:
 
         async with anyio.create_task_group() as tg:
             for member_names in groups.values():
-                tg.start_soon(_run_group, member_names)
+                _ = tg.start_soon(_run_group, member_names)
 
         return results
 
@@ -527,7 +527,7 @@ class WatlowManager:
 
         async with anyio.create_task_group() as tg:
             for member_names in groups.values():
-                tg.start_soon(_run_group, member_names)
+                _ = tg.start_soon(_run_group, member_names)
 
         return all_samples
 
@@ -570,7 +570,7 @@ class WatlowManager:
 
         async with anyio.create_task_group() as tg:
             for member_names in groups.values():
-                tg.start_soon(_run_group, member_names)
+                _ = tg.start_soon(_run_group, member_names)
 
         if self._error_policy is ErrorPolicy.RAISE and errors:
             raise ExceptionGroup("manager.execute_each: one or more controllers failed", errors)

@@ -80,7 +80,7 @@ def test_sync_portal_unwraps_single_member_exception_groups() -> None:
     async def coro() -> None:
         # AnyIO's task group rewraps single failures into ExceptionGroup.
         async with anyio.create_task_group() as tg:
-            tg.start_soon(_raise, MyError("boom"))
+            _ = tg.start_soon(_raise, MyError("boom"))
 
     async def _raise(exc: Exception) -> None:
         raise exc

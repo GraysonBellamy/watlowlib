@@ -352,13 +352,15 @@ async def record(
                 reconnect_factory=reconnect_factory,
             )
 
-        tg.start_soon(_producer_entrypoint)
+        # ``start_soon`` returns a TaskHandle (anyio >= 4.14); the producer is
+        # fire-and-forget and cancelled via the group below, so discard it.
+        _ = tg.start_soon(_producer_entrypoint)
         try:
             yield Recording(stream=receive_stream, summary=summary, rate_hz=rate_hz)
         finally:
             # Cancel + drain before the CM returns — producer lifetime
             # is strictly nested inside the ``async with``.
-            tg.cancel_scope.cancel()
+            tg.cancel()
 
     finished_at = datetime.now(UTC)
     p50, p99 = _tick_percentiles(tick_durations_ms)

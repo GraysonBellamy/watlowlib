@@ -321,8 +321,8 @@ async def test_maybe_acquire_blocks_other_tasks(anyio_backend: object) -> None:
             events.append("competitor.enter")
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(holder)
-        tg.start_soon(competitor)
+        _ = tg.start_soon(holder)
+        _ = tg.start_soon(competitor)
 
     assert events == ["holder.enter", "holder.exit", "competitor.enter"]
 
@@ -388,8 +388,8 @@ async def test_poll_many_holds_lock_atomically(anyio_backend: object) -> None:
             events.append("competitor.acquired")
 
     async with controller as ctl, anyio.create_task_group() as tg:
-        tg.start_soon(poller, ctl)
-        tg.start_soon(competitor, ctl)
+        _ = tg.start_soon(poller, ctl)
+        _ = tg.start_soon(competitor, ctl)
 
     # Competitor must observe its acquisition strictly after the
     # poll batch ended — atomic semantics.
