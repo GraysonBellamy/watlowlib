@@ -76,7 +76,7 @@ watlow-diag = "watlowlib.cli.diagnostics:main"
 [project.urls]
 Homepage = "https://github.com/GraysonBellamy/watlowlib"
 Repository = "https://github.com/GraysonBellamy/watlowlib"
-Documentation = "https://graysonbellamy.github.io/watlowlib/"
+Documentation = "https://watlowlib.graysonbellamy.dev/"
 Issues = "https://github.com/GraysonBellamy/watlowlib/issues"
 Changelog = "https://github.com/GraysonBellamy/watlowlib/blob/main/CHANGELOG.md"
 

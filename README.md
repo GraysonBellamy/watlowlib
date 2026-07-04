@@ -162,7 +162,7 @@ end-to-end tests and demos work without hardware.
 
 ## Documentation
 
-Full docs live at <https://graysonbellamy.github.io/watlowlib/>. Useful
+Full docs live at <https://watlowlib.graysonbellamy.dev/>. Useful
 entry points:
 
 - [Async quickstart](docs/quickstart-async.md) /
