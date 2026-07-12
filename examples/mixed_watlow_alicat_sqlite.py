@@ -95,6 +95,9 @@ async def main(out_path: Path) -> None:
                 duration=0.4,
             ) as recording:
                 summary = await pipe(recording.stream, sink, batch_size=4, flush_interval=0.1)
+        # pipe() always stamps finished_at before returning; the field is
+        # Optional only while a recording is in flight.
+        assert summary.finished_at is not None
         print(
             f"watlow recorded {summary.samples_emitted} samples "
             f"in {(summary.finished_at - summary.started_at).total_seconds():.2f}s",

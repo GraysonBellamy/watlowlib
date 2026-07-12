@@ -234,12 +234,10 @@ def _register_count_for(data_type: DataType, raw: dict[str, Any]) -> int:
         return 2
     if data_type in (DataType.U16, DataType.S16, DataType.U8, DataType.PACKED):
         return 1
-    if data_type is DataType.STRING:
-        # The PM3 part-number string is 16 ASCII bytes = 8 16-bit
-        # registers per the manual.
-        _ = raw  # reserved for future per-row override
-        return 8
-    return 1
+    # Remaining variant is DataType.STRING: the PM3 part-number string
+    # is 16 ASCII bytes = 8 16-bit registers per the manual.
+    _ = raw  # reserved for future per-row override
+    return 8
 
 
 def _build_spec(
