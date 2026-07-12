@@ -76,7 +76,7 @@ class ModbusOp:
             if self.count < 1 or self.count > 123:
                 msg = f"{self.fn.value} count {self.count} out of range (1..123)"
                 raise ValueError(msg)
-        elif self.fn is ModbusFn.WRITE_REGISTER and self.count != 1:
+        elif self.count != 1:  # remaining variant: ModbusFn.WRITE_REGISTER
             msg = f"{self.fn.value} expects count=1, got {self.count}"
             raise ValueError(msg)
         if self.fn in (ModbusFn.WRITE_REGISTER, ModbusFn.WRITE_REGISTERS):
