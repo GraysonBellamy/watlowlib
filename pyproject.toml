@@ -189,6 +189,7 @@ ignore = [
     "D203",    # incompatible with D211
     "D213",    # incompatible with D212
     "PLR0913", # too many args — common for device methods
+    "PLR0917", # too many positional args — same rationale as PLR0913
     "RUF002",  # ambiguous unicode in docstrings — en/em dashes are fine
     "RUF003",  # ambiguous unicode in comments
     "ANN401",  # Any in annotations — sometimes legitimate
@@ -264,6 +265,10 @@ indent-style = "space"
 line-ending = "lf"
 docstring-code-format = true
 docstring-code-line-length = 88
+# ruff >= 0.16 formats Python code blocks in Markdown. The design doc's
+# listings use hand-aligned trailing-comment columns to keep the spec
+# readable; the formatter collapses that alignment, so it opts out.
+exclude = ["docs/design.md"]
 
 # ---------------------------------------------------------------------------
 # mypy — strict

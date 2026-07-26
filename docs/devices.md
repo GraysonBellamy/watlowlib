@@ -57,8 +57,8 @@ from watlowlib import open_device, SERIES_SD_PROFILE
 # default from the profile (Modbus RTU, 9600 8-N-1) — no need to spell
 # them out.
 async with await open_device("COM11", profile=SERIES_SD_PROFILE, address=10) as ctl:
-    pv = await ctl.read_pv()          # 68.2 °F  (S32 ÷1000)
-    sp = await ctl.read_setpoint()    # 62.96 °F
+    pv = await ctl.read_pv()  # 68.2 °F  (S32 ÷1000)
+    sp = await ctl.read_setpoint()  # 62.96 °F
     power = await ctl.read_parameter("output_power")  # 82.8 %  (signed S16 ÷100)
 ```
 
@@ -325,14 +325,15 @@ Watlow protocols, address `1` only — so a GUI Discover dialog can ask
 ```python
 from watlowlib import find_devices
 
-rows = await find_devices()                # scan all ports, defaults
+rows = await find_devices()  # scan all ports, defaults
 rows = await find_devices(ports=["/dev/ttyUSB0"])
 rows = await find_devices(addresses=range(1, 17))  # multi-drop sweep
 
 for row in rows:
     if row.ok:
-        print(row.port, row.baudrate, row.protocol.value,
-              row.address, row.device_info.part_number.raw)
+        print(
+            row.port, row.baudrate, row.protocol.value, row.address, row.device_info.part_number.raw
+        )
 ```
 
 A row's `ok` field is the single attribute callers filter on:

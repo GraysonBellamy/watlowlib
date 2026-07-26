@@ -83,8 +83,8 @@ The bundled JSON ships with one canonical name per parameter, but
 common alternate names resolve through the alias table:
 
 ```python
-PARAMETERS.resolve("pv")              # → parameter 4001 (process_value)
-PARAMETERS.resolve("set_point")       # → parameter 7001 (setpoint)
+PARAMETERS.resolve("pv")  # → parameter 4001 (process_value)
+PARAMETERS.resolve("set_point")  # → parameter 7001 (setpoint)
 PARAMETERS.resolve("heat_algorithm")  # → parameter 8003 (heat_algorithm)
 ```
 
@@ -99,8 +99,8 @@ instance 2 is loop 2, etc. The default is always 1; the registry's
 
 ```python
 async with await open_device("/dev/ttyUSB0", address=1) as ctl:
-    pv1 = await ctl.read_pv(instance=1)            # loop 1
-    pv2 = await ctl.read_pv(instance=2)            # loop 2 (dual-loop SKUs)
+    pv1 = await ctl.read_pv(instance=1)  # loop 1
+    pv2 = await ctl.read_pv(instance=2)  # loop 2 (dual-loop SKUs)
     out = await ctl.read_parameter("output_power", instance=2)
 ```
 
@@ -151,7 +151,7 @@ async with await open_device("/dev/ttyUSB0", address=1) as ctl:
     # Generic read — returns ParameterEntry; the facade unwraps to Reading
     # for typed-shortcut parameters (process_value, setpoint, ...).
     entry = await ctl.read_parameter("heat_algorithm", instance=1)
-    print(entry.value)                # → 63 (PID)
+    print(entry.value)  # → 63 (PID)
 
     # Write — confirm=True is mandatory.
     await ctl.write_parameter("heat_algorithm", 71, instance=1, confirm=True)

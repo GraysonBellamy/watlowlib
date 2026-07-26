@@ -82,8 +82,7 @@ with SyncPortal() as portal:
     results = portal.call(find_devices, ports=["/dev/ttyUSB0"])
     for row in results:
         if row.ok:
-            print(row.port, row.baudrate, row.address,
-                  row.info.part_number.raw)
+            print(row.port, row.baudrate, row.address, row.info.part_number.raw)
 ```
 
 [`find_devices()`](../src/watlowlib/devices/discovery.py) probes
@@ -98,7 +97,7 @@ loop. See [Troubleshooting](troubleshooting.md).
 ## Persistent writes need `confirm=True`
 
 ```python
-ctl.set_setpoint(75.0)               # WatlowConfirmationRequiredError
+ctl.set_setpoint(75.0)  # WatlowConfirmationRequiredError
 ctl.set_setpoint(75.0, confirm=True)  # writes; returns Reading echo
 ```
 
@@ -125,7 +124,9 @@ with SyncPortal() as portal:
     with SyncWatlowManager(portal=portal) as mgr:
         mgr.add("oven_top", "/dev/ttyUSB0", address=1)
         with (
-            record(mgr, parameters=["process_value"], rate_hz=2.0, duration=60.0, portal=portal) as stream,
+            record(
+                mgr, parameters=["process_value"], rate_hz=2.0, duration=60.0, portal=portal
+            ) as stream,
             SyncSqliteSink("run.sqlite", portal=portal) as sink,
         ):
             pipe(stream, sink, portal=portal)

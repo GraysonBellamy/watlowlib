@@ -86,6 +86,7 @@ usually by joining the `dialout` group.
 import anyio
 from watlowlib import open_device, ProtocolKind
 
+
 async def main() -> None:
     async with await open_device(
         "/dev/ttyUSB0",
@@ -97,6 +98,7 @@ async def main() -> None:
         pv = await ctl.read_pv()
         print(pv.value, pv.unit)
         await ctl.set_setpoint(75.0, confirm=True)
+
 
 anyio.run(main)
 ```
@@ -125,6 +127,7 @@ from watlowlib import WatlowManager
 from watlowlib.streaming import record
 from watlowlib.sinks import CsvSink, pipe
 
+
 async def main() -> None:
     async with WatlowManager() as mgr:
         await mgr.add("oven", "/dev/ttyUSB0", address=1)
@@ -139,6 +142,7 @@ async def main() -> None:
             CsvSink("run.csv") as sink,
         ):
             await pipe(stream, sink)
+
 
 anyio.run(main)
 ```

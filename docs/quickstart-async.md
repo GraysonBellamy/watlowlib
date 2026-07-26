@@ -25,9 +25,7 @@ from watlowlib.testing import open_test_controller
 
 # Captured PM3 round-trip: read PV (parameter 4001) at MAC 0x10
 REQ_READ_PV = bytes.fromhex("55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99")
-RSP_READ_PV = bytes.fromhex(
-    "55 FF 06 00 10 00 0B 88 02 03 01 04 01 01 08 45 1E 3C D4 A7 28"
-)
+RSP_READ_PV = bytes.fromhex("55 FF 06 00 10 00 0B 88 02 03 01 04 01 01 08 45 1E 3C D4 A7 28")
 
 
 async def main() -> None:
@@ -73,7 +71,7 @@ explicit `confirm=True` at the facade. The session raises
 missing — so a forgotten `confirm` never reaches the controller.
 
 ```python
-await ctl.set_setpoint(75.0)              # WatlowConfirmationRequiredError
+await ctl.set_setpoint(75.0)  # WatlowConfirmationRequiredError
 await ctl.set_setpoint(75.0, confirm=True)  # writes; returns Reading echo
 ```
 

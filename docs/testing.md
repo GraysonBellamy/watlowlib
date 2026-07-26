@@ -52,9 +52,8 @@ from watlowlib import FakeTransport, ProtocolKind, SerialSettings
 from watlowlib.testing import open_test_controller
 
 REQ_READ_PV = bytes.fromhex("55 FF 05 10 00 00 06 E8 01 03 01 04 01 01 E3 99")
-RSP_READ_PV = bytes.fromhex(
-    "55 FF 06 00 10 00 0B 88 02 03 01 04 01 01 08 45 1E 3C D4 A7 28"
-)
+RSP_READ_PV = bytes.fromhex("55 FF 06 00 10 00 0B 88 02 03 01 04 01 01 08 45 1E 3C D4 A7 28")
+
 
 async def test_read_pv_returns_reading() -> None:
     transport = FakeTransport({REQ_READ_PV: RSP_READ_PV})
@@ -139,6 +138,7 @@ scenario," use the one-liner:
 
 ```python
 from watlowlib.testing import controller_from_fixture
+
 
 async def test_pv_round_trip() -> None:
     async with controller_from_fixture("tests/fixtures/pm3_stdbus_pv_setpoint.jsonl") as ctl:

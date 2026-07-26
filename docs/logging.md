@@ -20,6 +20,7 @@ and yields a stream of `Sample` batches.
 import anyio
 from watlowlib import WatlowManager, record
 
+
 async def main() -> None:
     async with WatlowManager() as mgr:
         await mgr.add("oven_top", "/dev/ttyUSB0", address=1)
@@ -33,6 +34,7 @@ async def main() -> None:
             async for batch in stream:
                 for sample in batch:
                     print(sample.device, sample.parameter, sample.value)
+
 
 anyio.run(main)
 ```
@@ -102,6 +104,7 @@ class SampleSink(Protocol):
     async def open(self) -> None: ...
     async def write_many(self, samples: Sequence[Sample]) -> None: ...
     async def close(self) -> None: ...
+
     # plus async context-manager dunder methods
 ```
 
