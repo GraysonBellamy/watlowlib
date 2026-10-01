@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-10-01
+
+### Changed
+
+- **`anyserial` 0.2 and `anymodbus` 0.3 are accepted.** The requirements
+  are now `anyserial>=0.1.2,<0.3` and `anymodbus>=0.1.1,<0.4` (were `<0.2`
+  and `<0.3`), so watlowlib installs beside libraries that need the newer
+  releases. No code changed. With `anymodbus` 0.3 installed, the Modbus
+  RTU path takes on that release's stricter defaults: a reply is checked
+  against its request, so a read answered with the wrong number of
+  registers, or a write echoed with a different address or value, raises
+  `WatlowProtocolError` instead of being returned; and a read is retried
+  on a malformed or mismatched reply as well as on a checksum error or a
+  timeout. Writes are still never retried.
+
 ## [0.7.0] — 2026-05-30
 
 ### Added (Watlow Series SD support)
