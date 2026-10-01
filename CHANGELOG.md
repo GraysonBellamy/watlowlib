@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-10-01
+
 ### Changed
 
 - **`anyserial` 0.2 and `anymodbus` 0.3 are accepted.** The requirements
