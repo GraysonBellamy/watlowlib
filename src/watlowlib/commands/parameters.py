@@ -151,6 +151,7 @@ class _WriteParameterStdBus:
 
     def encode(self, ctx: CommandContext, request: WriteParameterRequest) -> bytes:
         spec = _resolve(ctx, request)
+        ctx.registry.validate_writable(spec)
         ctx.registry.validate_value(spec, request.value)
         # STRING parameters accept str/bytes; numeric parameters
         # coerce in :func:`encode_value`.
@@ -294,6 +295,7 @@ class _WriteParameterModbus:
 
     def encode(self, ctx: CommandContext, request: WriteParameterRequest) -> ModbusOp:
         spec = _resolve(ctx, request)
+        ctx.registry.validate_writable(spec)
         # Validate in engineering units — ``range_min`` / ``range_max``
         # are parsed from the human-facing range string.
         ctx.registry.validate_value(spec, request.value)

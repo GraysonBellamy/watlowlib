@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Controller.read_comms_unit_label()` on a non-PM profile.** The
+  helper resolved PM parameter 17050 by name before any I/O, so on a
+  Series SD or Series F4P session it raised `WatlowValidationError`
+  (`unknown parameter name: 'display_units'`) instead of degrading to
+  `None` the way a rejected read does. Callers that prime the label
+  right after `identify()` (capa's adapter does) could not open those
+  devices. The session now returns `None` without a wire exchange when
+  its registry has no `display_units` row.
+- **Writes to read-only rows are rejected before any I/O.** `rwes = R`
+  only set `SafetyTier.READ_ONLY` on the spec; `write_parameter` and
+  `set_setpoint` still encoded and sent the write (the device, not the
+  library, decided). Both write variants now call the new
+  `ParameterRegistry.validate_writable()` and raise
+  `WatlowValidationError` for an `R` row, so the read-only Series F4P
+  profile cannot write to the blackbody even with `confirm=True`.
+
 ## [0.8.0] — 2026-10-11
 
 ### Added (Watlow Series F4P support, read-only)
