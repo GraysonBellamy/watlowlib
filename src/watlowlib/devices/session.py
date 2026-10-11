@@ -468,8 +468,14 @@ class Session:
         Swallows protocol / transport errors to ``None`` — same
         graceful-degrade policy as :meth:`Controller._safe_read_int`,
         so a device that doesn't expose 17050 still returns from this
-        helper, just with no label.
+        helper, just with no label. A profile whose registry has no
+        ``display_units`` row at all (Series SD, Series F4P) returns
+        ``None`` without touching the wire, instead of raising the
+        pre-I/O :class:`WatlowValidationError` the registry lookup
+        would otherwise surface.
         """
+        if not self._registry.has("display_units"):
+            return None
         # Imported here to avoid a circular import: commands/parameters.py
         # depends on devices/models.py which depends on registry/units.py;
         # session.py is one step removed and pulls these in lazily.

@@ -600,6 +600,19 @@ class ParameterRegistry:
                 f"instance {instance} out of range for {spec.name!r} (1..{spec.max_instance})",
             )
 
+    def validate_writable(self, spec: ParameterSpec) -> None:
+        """Raise if ``spec`` is a read-only (``R``) row.
+
+        Called by both write variants before encoding, so a write to a
+        read-only register never reaches the wire. This is what keeps a
+        read-only profile (every Series F4P row is ``R``) read-only even
+        when a caller passes ``confirm=True``.
+        """
+        if spec.rwes is RwesFlag.R:
+            raise WatlowValidationError(
+                f"parameter {spec.name!r} is read-only (rwes=R); writes are rejected",
+            )
+
     def validate_value(self, spec: ParameterSpec, value: float | int | str) -> None:
         """Soft range check based on the spec's parsed ``range`` metadata.
 

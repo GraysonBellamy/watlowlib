@@ -74,8 +74,10 @@ encodes both access and persistence:
 
 Anything that writes — even `RW` ("runtime only") — needs
 `confirm=True` at the facade. The library treats every write as a
-state change worth confirming. See [Safety](safety.md) for the gate
-order and the rationale.
+state change worth confirming. A write to an `R` row is rejected
+before any I/O with `WatlowValidationError`, whatever `confirm` says;
+that is what keeps the read-only Series F4P profile read-only. See
+[Safety](safety.md) for the gate order and the rationale.
 
 ## Resolving by alias
 
