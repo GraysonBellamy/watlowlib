@@ -14,11 +14,13 @@ from watlowlib.registry.aliases import DEFAULT_ALIASES
 from watlowlib.registry.enumerations import EnumerationRow, load_enumerations
 from watlowlib.registry.families import ControllerFamily, classify_family
 from watlowlib.registry.parameters import (
+    F4P_PARAMETERS,
     PARAMETERS,
     SD_PARAMETERS,
     ParameterRegistry,
     ParameterSpec,
     RwesFlag,
+    load_f4p_parameters,
     load_parameters,
     load_pm_parameters,
     load_sd_parameters,
@@ -34,6 +36,7 @@ from watlowlib.registry.units import (
 
 __all__ = [
     "DEFAULT_ALIASES",
+    "F4P_PARAMETERS",
     "PARAMETERS",
     "SD_PARAMETERS",
     "ControllerFamily",
@@ -47,6 +50,7 @@ __all__ = [
     "coerce_unit",
     "display_code_for_unit",
     "load_enumerations",
+    "load_f4p_parameters",
     "load_parameters",
     "load_pm_parameters",
     "load_sd_parameters",

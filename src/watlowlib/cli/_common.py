@@ -2,9 +2,11 @@
 
 Every command that opens a controller accepts the same surface: a
 positional ``port``, optional serial-framing overrides
-(``--baud`` / ``--parity`` / ``--stopbits``), a ``--protocol``
-selector (``stdbus``/``modbus_rtu``/``auto``), an ``--address``,
-a ``--timeout``, and a ``--fixture`` test-injection flag.
+(``--baud`` / ``--parity`` / ``--stopbits``), a ``--profile``
+selector (``ezzone`` / ``series_sd`` / ``f4p``), a ``--protocol``
+selector (``stdbus``/``modbus_rtu``/``auto``, defaulting to the
+profile's factory protocol), an ``--address``, a ``--timeout``, and
+a ``--fixture`` test-injection flag.
 
 This module factors that into :func:`add_open_args` plus the
 resolution helpers used by each command's ``main``.
@@ -23,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 from anyserial import Parity, StopBits
 
+from watlowlib.devices.profile import DEVICE_PROFILES, EZZONE_PROFILE, profile_named
 from watlowlib.errors import WatlowError, WatlowValidationError
 from watlowlib.protocol.base import ProtocolKind
 from watlowlib.transport.base import SerialSettings
@@ -32,13 +35,16 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from watlowlib.devices.controller import Controller
+    from watlowlib.devices.profile import DeviceProfile
 
 __all__ = [
     "PARITY_CHOICES",
+    "PROFILE_CHOICES",
     "STOPBITS_CHOICES",
     "add_open_args",
     "controller_from_args",
     "parity_from_name",
+    "profile_from_args",
     "resolve_open_args",
     "run_cli",
     "stopbits_from_number",
@@ -46,6 +52,7 @@ __all__ = [
 
 
 PARITY_CHOICES: tuple[str, ...] = ("odd", "even", "none")
+PROFILE_CHOICES: tuple[str, ...] = tuple(profile.name for profile in DEVICE_PROFILES)
 STOPBITS_CHOICES: tuple[int, ...] = (1, 2)
 
 
@@ -104,10 +111,23 @@ def add_open_args(parser: argparse.ArgumentParser, *, port_required: bool = True
         help="Override the default 1 stop bit.",
     )
     parser.add_argument(
+        "--profile",
+        choices=PROFILE_CHOICES,
+        default=EZZONE_PROFILE.name,
+        help=(
+            "Device profile: ezzone (EZ-ZONE PM, default), series_sd (Series SD), "
+            "f4p (Series F4P). Supplies the parameter registry, the identity "
+            "strategy, and the default protocol and framing."
+        ),
+    )
+    parser.add_argument(
         "--protocol",
         choices=("auto", "stdbus", "modbus_rtu"),
-        default="stdbus",
-        help="Wire protocol to speak (default: stdbus).",
+        default=None,
+        help=(
+            "Wire protocol to speak. Defaults to the profile's factory protocol "
+            "(stdbus for ezzone; modbus_rtu for series_sd and f4p)."
+        ),
     )
     parser.add_argument(
         "--address",
@@ -134,20 +154,31 @@ def add_open_args(parser: argparse.ArgumentParser, *, port_required: bool = True
     )
 
 
+def profile_from_args(args: argparse.Namespace) -> DeviceProfile:
+    """Resolve the ``--profile`` choice (EZ-ZONE PM when the parser has none)."""
+    return profile_named(getattr(args, "profile", None) or EZZONE_PROFILE.name)
+
+
 def resolve_open_args(
     args: argparse.Namespace,
 ) -> tuple[str, ProtocolKind, int, SerialSettings | None]:
     """Return ``(port, protocol, address, serial_settings)``.
 
+    ``protocol`` is the explicit ``--protocol`` choice, else the
+    ``--profile``'s factory protocol.
+
     Raises:
         WatlowValidationError: ``--fixture`` is not set and ``port`` is
             absent.
     """
+    protocol = (
+        ProtocolKind(args.protocol) if args.protocol else profile_from_args(args).default_protocol
+    )
     if args.fixture is not None:
         # The fixture path is honoured by ``controller_from_args``.
         # The other fields keep argparse defaults so downstream callers
         # can print them in error messages without juggling None.
-        return args.fixture, ProtocolKind(args.protocol), int(args.address), None
+        return args.fixture, protocol, int(args.address), None
     if args.port is None:
         raise WatlowValidationError(
             "port is required when --fixture is not supplied",
@@ -158,7 +189,7 @@ def resolve_open_args(
         parity_name=args.parity,
         stopbits_number=args.stopbits,
     )
-    return args.port, ProtocolKind(args.protocol), int(args.address), settings
+    return args.port, protocol, int(args.address), settings
 
 
 def _build_serial_settings(
@@ -199,12 +230,13 @@ async def controller_from_args(args: argparse.Namespace) -> Controller:
         # don't want a CLI's ``--help`` to load the fixture loader.
         from watlowlib.testing import controller_from_fixture  # noqa: PLC0415
 
-        return await controller_from_fixture(args.fixture)
+        return await controller_from_fixture(args.fixture, profile=profile_from_args(args))
     from watlowlib.devices.factory import open_device  # noqa: PLC0415
 
     port, protocol, address, settings = resolve_open_args(args)
     return await open_device(
         port,
+        profile=profile_from_args(args),
         protocol=protocol,
         address=address,
         serial_settings=settings,

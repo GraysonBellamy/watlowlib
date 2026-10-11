@@ -87,10 +87,15 @@ If `watlow-discover` finds nothing:
 
 ```bash
 watlow-read --port /dev/ttyUSB0 --address 1 -p process_value
+watlow-read --port COM8 --profile f4p --address 10 -p process_value -p setpoint
 ```
 
 Open, identify, read one parameter, exit. The fastest sanity check
-that a controller is alive and decoded correctly.
+that a controller is alive and decoded correctly. `--profile` picks the
+device type (`ezzone` by default, `series_sd`, or `f4p`) and with it the
+registry, the identity strategy, and the default protocol and framing;
+`--protocol` overrides the protocol when a device has been moved off
+its factory setting.
 
 ## SKU-vs-protocol mismatches
 

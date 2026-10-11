@@ -31,9 +31,11 @@ from watlowlib.devices.models import (
 from watlowlib.devices.profile import (
     DEVICE_PROFILES,
     EZZONE_PROFILE,
+    F4P_PROFILE,
     SERIES_SD_PROFILE,
     DeviceProfile,
     IdentifyStrategy,
+    profile_named,
 )
 from watlowlib.devices.session import Session
 from watlowlib.devices.snapshot import DeviceSnapshot, WatlowDeviceSnapshot
@@ -44,6 +46,7 @@ __all__ = [
     "DEFAULT_DISCOVERY_PROTOCOLS",
     "DEVICE_PROFILES",
     "EZZONE_PROFILE",
+    "F4P_PROFILE",
     "SERIES_SD_PROFILE",
     "AlarmState",
     "Availability",
@@ -66,4 +69,5 @@ __all__ = [
     "classify_family",
     "find_devices",
     "open_device",
+    "profile_named",
 ]

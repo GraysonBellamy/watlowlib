@@ -17,6 +17,7 @@ import anyio
 from anyserial import Parity
 
 from watlowlib.devices.factory import open_device
+from watlowlib.devices.profile import DEVICE_PROFILES, EZZONE_PROFILE, profile_named
 from watlowlib.errors import WatlowError
 from watlowlib.protocol.base import ProtocolKind
 from watlowlib.testing import controller_from_fixture
@@ -48,10 +49,32 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--profile",
+        choices=tuple(profile.name for profile in DEVICE_PROFILES),
+        default=EZZONE_PROFILE.name,
+        help=(
+            "Device profile: ezzone (EZ-ZONE PM, default), series_sd (Series SD), "
+            "f4p (Series F4P). Supplies the parameter registry, the identity "
+            "strategy, and the default protocol and framing."
+        ),
+    )
+    parser.add_argument(
         "--protocol",
         choices=("auto", "stdbus", "modbus_rtu"),
-        default="stdbus",
-        help="Wire protocol (default: stdbus).",
+        default=None,
+        help=(
+            "Wire protocol. Defaults to the profile's factory protocol "
+            "(stdbus for ezzone; modbus_rtu for series_sd and f4p)."
+        ),
+    )
+    parser.add_argument(
+        "--identify",
+        action="store_true",
+        help=(
+            "Run identify() before reading. A live port already does this on "
+            "open; pass it with --fixture when the profile derives decode state "
+            "from the device (the f4p decimal-places and unit registers)."
+        ),
     )
     parser.add_argument("--address", type=int, default=1, help="Bus address (default: 1).")
     parser.add_argument("--baud", type=int, help="Baud rate (default: protocol-specific).")
@@ -105,6 +128,8 @@ async def _run(args: argparse.Namespace) -> int:
     controller = await _open_controller(args)
     rows: list[dict[str, Any]] = []
     async with controller as ctl:
+        if args.identify:
+            await ctl.identify(timeout=args.timeout)
         protocol_value = ctl.session.protocol_kind.value
         address = ctl.session.address
         port_label = ctl.session.port
@@ -132,12 +157,15 @@ async def _run(args: argparse.Namespace) -> int:
 
 
 async def _open_controller(args: argparse.Namespace) -> Controller:
+    profile = profile_named(args.profile)
     if args.fixture:
-        return await controller_from_fixture(args.fixture)
-    protocol = ProtocolKind(args.protocol)
+        return await controller_from_fixture(args.fixture, profile=profile)
+    # ``None`` lets ``open_device`` adopt the profile's factory protocol.
+    protocol = ProtocolKind(args.protocol) if args.protocol else None
     serial_settings = _build_serial_settings(args)
     return await open_device(
         args.port,
+        profile=profile,
         protocol=protocol,
         address=args.address,
         serial_settings=serial_settings,

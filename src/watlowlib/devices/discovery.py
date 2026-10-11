@@ -38,6 +38,10 @@ The default scan is narrow on purpose:
   wire protocols on serial. ``AUTO`` is not in the default set; it
   would double the open count per (port, baudrate) and the detector
   is intentionally a single-port API.
+- with ``profiles``, a profile that declares ``supported_baudrates``
+  is skipped at every other baud of the *default* sweep (the Series
+  F4P only speaks 9600 / 19200, so it is never probed at 38400). An
+  explicit ``baudrates`` argument is honoured as given.
 """
 
 from __future__ import annotations
@@ -150,8 +154,11 @@ async def find_devices(
             framing (so the Series SD's 8-N-1 is used, not the PM
             Modbus 8-E-1), parameter registry, and identity strategy.
             Pass :data:`~watlowlib.devices.profile.DEVICE_PROFILES` to
-            sweep for every known device type (PM over Std Bus + SD over
-            Modbus). ``None`` (default) keeps the historical
+            sweep for every known device type (PM over Std Bus, SD and
+            F4P over Modbus). When ``baudrates`` is left at its default,
+            a profile with ``supported_baudrates`` is only probed at
+            those bauds and no rows are emitted for the skipped
+            combinations. ``None`` (default) keeps the historical
             protocol-centric scan against the EZ-ZONE PM profile.
         serial_template: Optional :class:`SerialSettings` whose
             ``parity`` / ``bytesize`` / ``stopbits`` / ``rtscts`` /
@@ -167,7 +174,8 @@ async def find_devices(
 
     Returns:
         One :class:`DiscoveryResult` per (port × baudrate × protocol ×
-        address) tuple, in input order. The cartesian product is
+        address) tuple, in input order, minus the combinations pruned
+        by a profile's ``supported_baudrates`` (see ``profiles``). The cartesian product is
         iterated outermost-port, then baudrate, then protocol, then
         address — same input → same output ordering.
 
@@ -219,11 +227,20 @@ async def find_devices(
             )
         plan = tuple((protocol, EZZONE_PROFILE, None) for protocol in resolved_protocols)
 
+    # Only the default baud sweep is pruned by a profile's declared
+    # baud set; an explicit ``baudrates`` is the caller's rig knowledge.
+    prune_bauds = baudrates is None
     results: list[DiscoveryResult] = []
     dead_ports: set[str] = set()
     for port in resolved_ports:
         for baud in resolved_baudrates:
             for protocol, profile, framing_base in plan:
+                if (
+                    prune_bauds
+                    and profile.supported_baudrates is not None
+                    and baud not in profile.supported_baudrates
+                ):
+                    continue
                 if port in dead_ports:
                     # Emit one row per planned address so callers see
                     # the same cartesian-product shape regardless of

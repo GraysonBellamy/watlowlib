@@ -18,9 +18,10 @@ acquisition helpers, and pluggable sinks.
 > `WatlowManager`, streaming, all sinks, the sync facade, and every CLI
 > are implemented and covered by 579 passing tests across `asyncio`,
 > `asyncio+uvloop`, and `trio`. The core has been exercised against a
-> live EZ-ZONE PM3 (Standard Bus) and a Series SD over Modbus RTU;
-> the Modbus RTU side has codec / client / integration coverage plus
-> captured PM3 and SD fixture goldens.
+> live EZ-ZONE PM3 (Standard Bus), a Series SD over Modbus RTU, and a
+> Series F4P (the controller inside an ISDC IR-301 blackbody source)
+> over Modbus RTU; the Modbus RTU side has codec / client / integration
+> coverage plus captured PM3, SD, and F4P fixture goldens.
 > Expect API churn until 1.0. See [docs/design.md](docs/design.md) for
 > the architectural reference.
 
@@ -155,6 +156,7 @@ samples per tick, and reports send/receive timing on every `Sample`.
 ```bash
 watlow-discover --port /dev/ttyUSB0 --protocol both # probe + identify
 watlow-read --port /dev/ttyUSB0 --protocol auto -p process_value
+watlow-read --port COM8 --profile f4p --address 10 -p process_value
 watlow-decode "55 FF 06 00 10 ..."                  # offline Std Bus decode
 watlow-raw --port /dev/ttyUSB0 stdbus --service read --class 4 --member 1
 watlow-configure change-protocol-mode /dev/ttyUSB0 --target modbus_rtu --confirm

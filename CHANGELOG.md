@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-11
+
+### Added (Watlow Series F4P support, read-only)
+
+- **`F4P_PROFILE`** — device profile for the Watlow Series F4P
+  single-channel controller (the controller inside the ISDC IR-301 /
+  Oriel M67032 blackbody source). Modbus RTU at 19200 8-N-1, identity
+  from register 0 (model code 5280), `capabilities=NONE`, one loop.
+  `DEVICE_PROFILES` now carries three profiles. Identity, the
+  decimal-driven scale, and the unit were validated live against the
+  bench IR-301 (COM8, address 10).
+- **`F4P_PARAMETERS`** — registry loaded from the new bundled
+  `data/f4p_parameters.json` (diagnostics, status, set points and alarm
+  set points, PID set 1, input / output / alarm configuration, system
+  units, ramping, and the IR-301 manual's extra registers; verified
+  against the F4P manual's §9.11 numerical register table). Canonical
+  names are shared with the PM / SD registries where the meaning
+  matches (`process_value`, `setpoint`, `output_power`, `units`,
+  `input_error`, `auto_manual`, `serial_number_high` / `_low`,
+  `software_id`). Every row is `R`: writes to the blackbody are out of
+  scope until its owner authorises them.
+- **`ParameterSpec.decimal_register`** and
+  **`ParameterRegistry.with_decimal_places(register, places)`** — a row
+  can name the device register that sets its implied decimal places,
+  and the registry can return a copy rescaled by `10 ** -places`.
+  **`Session.bind_registry(registry)`** lets an identity strategy
+  install that copy. `f4p_identify` reads register 606 and rebinds the
+  session registry, and reads register 901 to set the wire temperature
+  unit, so F4P scaling and units come from the live device rather than
+  constants in the JSON.
+- **`DeviceProfile.supported_baudrates`** — optional baud set a family
+  is confined to. `find_devices(profiles=...)` skips the other bauds of
+  its default sweep for such a profile (the F4P is probed at 9600 /
+  19200 only, never 38400); an explicit `baudrates` argument is
+  honoured as given.
+- **`profile_named(name)`** and a **`--profile {ezzone,series_sd,f4p}`**
+  flag on `watlow-read` and the shared CLI argument set
+  (`watlow-configure`, `watlow-diag ...`). `--protocol` now defaults to
+  the chosen profile's factory protocol instead of always `stdbus`
+  (unchanged for the default `ezzone` profile). `watlow-read --identify`
+  runs `identify()` before reading, for fixture replays of profiles
+  whose decode state comes from the device.
+- **`ControllerFamily.F4P`** and `classify_family("F4P…") → F4P`.
+- Fixture `tests/fixtures/f4p_modbus_identify.jsonl` captured from the
+  bench IR-301, a hardware-marked read-only smoke test
+  (`tests/test_f4p_hardware.py`), and a Series F4P section in
+  `docs/devices.md` with the RS-485 wiring and power-cycle notes.
+
 ## [0.7.1] — 2026-10-01
 
 ### Changed

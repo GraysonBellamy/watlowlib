@@ -41,12 +41,13 @@ and how to identify it. `watlowlib` bundles those into a frozen
 first-class object rather than an implicit "always EZ-ZONE PM"
 assumption.
 
-Two profiles ship:
+Three profiles ship:
 
 | Profile | Family | Default protocol | Default framing | Wire temp. unit |
 | ------- | ------ | ---------------- | --------------- | --------------- |
 | `EZZONE_PROFILE` | `PM` | Standard Bus | 38400 8-N-1 | `None` — you must assert it (PM firmware can misreport its own unit register; see [Units](#units)). |
 | `SERIES_SD_PROFILE` | `SD` | Modbus RTU | 9600 8-N-1 | `Unit.FAHRENHEIT` — the SD manual fixes Modbus temperatures to °F by default, and identity reads register 18 to confirm. |
+| `F4P_PROFILE` | `F4P` | Modbus RTU | 19200 8-N-1 | `None` at open — `identify()` reads register 901 and sets the session unit from the live value (see [Series F4P](#series-f4p)). |
 
 `open_device` takes the profile and derives everything else from it:
 
@@ -83,6 +84,106 @@ PM on different ports.
     each power-up to keep subsequent writes in RAM only (the SD resets
     register 17 to `1` on every power cycle).
 
+### Series F4P
+
+The Watlow Series F4P is a single-channel 1/4 DIN controller. The ISDC
+IR-301 blackbody controller (sold by Oriel / Newport as the M67032) is an
+F4P with a custom overlay and firmware, model label `F4PH-CAAB-01AE`, so
+`F4P_PROFILE` is how a logger reads the blackbody.
+
+```python
+from watlowlib import F4P_PROFILE, open_device
+
+# IR-301 on COM8 through a USB-RS-485 adapter, Modbus address 10.
+# protocol / serial_settings default from the profile (Modbus RTU,
+# 19200 8-N-1); open_device runs identify() before returning.
+async with await open_device("COM8", profile=F4P_PROFILE, address=10) as ctl:
+    pv = await ctl.read_pv()  # 597.0 °C
+    sp = await ctl.read_setpoint()  # 600.0 °C
+    power = await ctl.read_parameter("output_power")  # 13.0 %
+    alarm = await ctl.read_parameter("alarm_1_status")  # 2 = Alarm Low
+```
+
+**Identity.** Register 0 ("Model, Diagnostic") reads `5280` on every
+F4P. `identify()` requires it, so a foreign device at the same address
+yields `health=FAILED` rather than a false match. The serial number
+comes from registers 1 and 2 (joined as a six-digit number; not yet
+checked against a nameplate) and the software number from register 3.
+
+**Scaling comes from the device.** F4P registers hold integers with
+implied decimals, and the number of decimals is a *setting*: register
+606, "Decimal, Analog Input 1". Every temperature row in
+`F4P_PARAMETERS` names 606 as its `decimal_register` and loads at the
+factory default of no decimals. `identify()` reads 606 and rebinds the
+session registry with `scale = 10 ** -places`, so `read_pv()` returns
+`597.0` for a raw `5970` on a unit showing one decimal. Open with
+`identify=False` and the raw integers come back unscaled until you call
+`identify()` yourself.
+
+**Units come from register 901.** `identify()` reads 901 ("°F or °C,
+System": 0 = °F, 1 = °C) and sets the session's wire temperature unit,
+so `Reading.unit` is honest without an `assert_wire_temperature_unit=`
+argument. Register 1923 is **not** a unit register: the IR-301 manual
+calls it "Show °F or °C", but the F4P manual defines it as "show the
+unit indicator on the upper display" (0 = no, 1 = yes).
+
+**Read-only.** Every `F4P_PARAMETERS` row is `R`, including registers
+the F4P manual lists as r/w (set point, alarm set points, PID set 1,
+input, output, and alarm configuration). The IR-301 is a live
+calibration source that runs at 600 °C and above; writes stay out of
+scope until its owner authorises them. When they arrive, register 25
+("Save Changes to EE", write-only) is the F4P's counterpart of the SD's
+register 17 for keeping high-rate set point writes out of EEPROM.
+
+Confirmed on the bench unit: register 606 reads `1` (tenths) and 901
+reads `1` (°C); the alarm set points are deviation bands (registers
+702 and 719 read `2`); and register 104, the IR-301 manual's
+cold-junction value (absent from the F4P table), reads `217` for
+21.7 °C while the F4P's own CJC register 1500 reads `711`, which is
+71.1 °F, so 1500 is left untagged. Still to settle against the front
+panel: the `% power` scale (register 103; tenths, supported by the
+high power limit in register 714 reading `450` for a 45.0 % cap) and
+the serial-number word split (`018883` from `1` / `8883`). Registers
+105 and 209 (cold-junction and system error) come from the IR-301
+manual only and read `0`.
+
+!!! note "Wiring the IR-301's rear port for RS-485"
+    The IR-301's rear DB-9 (labelled "RS232C/RS422A/RS485") never
+    answered on its factory RS-232 wiring. The bench unit was rewired
+    internally to the F4P's RS-485 terminals: DB-9 pin 3 to terminal 12
+    (T+/R+), pin 2 to terminal 13 (T-/R-), pin 5 to terminal 16
+    (common), with 820 Ω bias resistors from terminal 11 (+5 V) to 12
+    and from 13 to 16 (the F4P manual, §8.12, suggests 1 kΩ pull-up and
+    pull-down when comms fail). The controller only started answering
+    after a **power cycle** following the rewiring, so power-cycle it
+    first if it goes silent. The front panel's COM LED blinks on
+    traffic. Single-register replies take 10-17 ms at 19200.
+
+**Discovery.** The F4P's Communications menu offers only 9600 and
+19200, so `F4P_PROFILE.supported_baudrates` is `{9600, 19200}` and
+`find_devices(profiles=...)` skips 38400 for it in the default sweep.
+The bench unit sits at address 10, which the default scan does not
+probe; pass it explicitly and restrict the scan to the adapter's port so
+the other instruments on the rig are left alone:
+
+```python
+rows = await find_devices(ports=["COM8"], addresses=(10,), profiles=(F4P_PROFILE,))
+```
+
+Sweeping with `DEVICE_PROFILES` can also report the same address as a
+Series SD with `health=PARTIAL`: the SD has no model register to check,
+and its identity probe reads F4P registers that happen to exist. Prefer
+the F4P row (model `5280`, `health=OK`).
+
+**Block reads.** The IR-301 manual allows 1 to 32 registers per FC03
+read, and the bench unit confirms it: registers 100-106 (process value,
+input error, alarm 1, % power, cold junction value and error, alarm 2)
+come back in one frame, as do 0-5 and 300-303. Registers the F4P does
+not map return the filler `0x8300` inside a block instead of an
+exception. `watlowlib` reads one parameter per call today; a logger that
+wants the whole status block per tick can issue the block read through
+`session.client` with a raw `ModbusOp` (the `watlow-raw` escape hatch).
+
 ## Family classification
 
 Family is decided by the leading characters of the part-number string:
@@ -94,6 +195,7 @@ Family is decided by the leading characters of the part-number string:
 | `ST*`   | `ControllerFamily.ST`           | EZ-ZONE ST. Discriminator only. |
 | `F4T*`  | `ControllerFamily.F4T`          | F4T. Discriminator only. |
 | `SD*`   | `ControllerFamily.SD`           | Series SD PID controller (Modbus RTU only; bare-register map, no Std Bus). Has no ASCII model-name register — identity is numeric (see [Device profiles](#device-profiles)). |
+| `F4P*`  | `ControllerFamily.F4P`          | Series F4P single-channel controller (Modbus RTU; bare-register map). No ASCII model register — identity is register 0 reading `5280` (see [Series F4P](#series-f4p)). |
 | anything else | `ControllerFamily.UNKNOWN` | First-class case — no priors, every call becomes a live probe. |
 
 [`classify_family(part_number)`](../src/watlowlib/registry/families.py)
@@ -341,6 +443,20 @@ populated `device_info` and `error is None` ⇔ `ok is True`. Silent /
 absent addresses surface as `ok=False` rows carrying a typed
 `WatlowError` so callers can distinguish "port wouldn't open" from
 "no reply at this address".
+
+Pass `profiles=DEVICE_PROFILES` (or a subset) to probe by device type
+instead of by protocol: each profile contributes its own protocol,
+factory framing, registry, and identity strategy. A profile that
+declares `supported_baudrates` (the F4P: 9600 and 19200) is skipped at
+the other bauds of the default sweep; pass an explicit `baudrates=` to
+probe it elsewhere.
+
+```python
+from watlowlib import DEVICE_PROFILES, F4P_PROFILE, find_devices
+
+rows = await find_devices(profiles=DEVICE_PROFILES)  # PM + SD + F4P, every port
+rows = await find_devices(ports=["COM8"], addresses=(10,), profiles=(F4P_PROFILE,))
+```
 
 The [`watlow-discover`](troubleshooting.md#watlow-discover) CLI wraps
 `find_devices()` with a JSON / table renderer.
