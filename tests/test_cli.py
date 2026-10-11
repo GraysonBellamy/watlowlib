@@ -13,11 +13,13 @@ argument parsing, output formatting, and the wiring between them.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
 import pytest
 
+from watlowlib import ProtocolKind
 from watlowlib.cli import decode as decode_cli
 from watlowlib.cli import discover as discover_cli
 from watlowlib.cli import raw as raw_cli
@@ -26,6 +28,7 @@ from watlowlib.cli import read as read_cli
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 PM3_STDBUS = FIXTURES_DIR / "pm3_stdbus_pv_setpoint.jsonl"
 PM3_MODBUS = FIXTURES_DIR / "pm3_modbus_pv_setpoint.jsonl"
+F4P_MODBUS = FIXTURES_DIR / "f4p_modbus_identify.jsonl"
 
 
 # --- watlow-decode --------------------------------------------------
@@ -185,3 +188,102 @@ def test_raw_modbus_subparser_help(capsys: pytest.CaptureFixture[str]) -> None:
     out = capsys.readouterr().out
     assert "--fn" in out
     assert "--register" in out
+
+
+# --- watlow-read --profile ------------------------------------------
+
+
+def test_read_f4p_fixture_with_profile_and_identify(capsys: pytest.CaptureFixture[str]) -> None:
+    """``--profile f4p --identify`` decodes the IR-301 capture at the live scale."""
+    rc = read_cli.main(
+        [
+            "--fixture",
+            str(F4P_MODBUS),
+            "--profile",
+            "f4p",
+            "--identify",
+            "--parameter",
+            "process_value",
+            "--parameter",
+            "setpoint",
+            "--parameter",
+            "alarm_1_status",
+            "--format",
+            "json",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    parsed = json.loads(out)
+    assert [row["name"] for row in parsed] == ["process_value", "setpoint", "alarm_1_status"]
+    assert parsed[0]["parameter_id"] == 100
+    assert parsed[0]["value"] == 597.0
+    assert parsed[0]["data_type"] == "S16"
+    assert parsed[0]["raw_hex"] == "1752"
+    assert parsed[1]["value"] == 600.0
+    assert parsed[2]["value"] == 2
+    assert parsed[0]["address"] == 10
+    assert parsed[0]["protocol"] == "modbus_rtu"
+
+
+def test_read_f4p_fixture_without_identify_is_raw(capsys: pytest.CaptureFixture[str]) -> None:
+    rc = read_cli.main(
+        ["--fixture", str(F4P_MODBUS), "--profile", "f4p", "-p", "pv", "--format", "json"]
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert json.loads(out)[0]["value"] == 5970
+
+
+def test_read_rejects_unknown_profile() -> None:
+    with pytest.raises(SystemExit):
+        read_cli.main(["--fixture", str(F4P_MODBUS), "--profile", "nope", "-p", "pv"])
+
+
+def test_read_default_profile_still_decodes_pm_fixture(capsys: pytest.CaptureFixture[str]) -> None:
+    """The ezzone default keeps the PM fixtures working with no new flags."""
+    rc = read_cli.main(["--fixture", str(PM3_MODBUS), "-p", "process_value", "--format", "json"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert json.loads(out)[0]["parameter_id"] == 4001
+
+
+# --- shared open args: --profile drives the default protocol --------
+
+
+def _shared_parser() -> argparse.ArgumentParser:
+    from watlowlib.cli._common import add_open_args
+
+    parser = argparse.ArgumentParser()
+    add_open_args(parser)
+    return parser
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["COM8"], ProtocolKind.STDBUS),
+        (["COM8", "--profile", "ezzone"], ProtocolKind.STDBUS),
+        (["COM8", "--profile", "series_sd"], ProtocolKind.MODBUS_RTU),
+        (["COM8", "--profile", "f4p", "--address", "10"], ProtocolKind.MODBUS_RTU),
+        (["COM8", "--profile", "f4p", "--protocol", "auto"], ProtocolKind.AUTO),
+        (["COM8", "--protocol", "modbus_rtu"], ProtocolKind.MODBUS_RTU),
+    ],
+)
+def test_shared_open_args_protocol_defaults_to_profile(
+    argv: list[str], expected: ProtocolKind
+) -> None:
+    from watlowlib.cli._common import profile_from_args, resolve_open_args
+
+    args = _shared_parser().parse_args(argv)
+    port, protocol, address, settings = resolve_open_args(args)
+    assert port == "COM8"
+    assert protocol is expected
+    assert address == int(args.address)
+    assert settings is None  # no framing override → profile factory framing
+    assert profile_from_args(args).name == args.profile
+
+
+def test_shared_open_args_rejects_unknown_profile() -> None:
+    with pytest.raises(SystemExit):
+        _shared_parser().parse_args(["COM8", "--profile", "f4"])

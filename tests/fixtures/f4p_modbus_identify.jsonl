@@ -1,0 +1,38 @@
+# Series F4P inside the ISDC IR-301 blackbody controller (Oriel M67032), bench link:
+# DTECH USB-RS-485 adapter on COM8, Modbus RTU address 10, 19200 8-N-1, FC03 single-register reads.
+# Registers 0 / 100 / 300 are the CRC-verified frames from the probe log; the other status rows
+# come from the read_status.py snapshot taken minutes earlier (blackbody recovering to 600.0 C).
+# Registers 606 (decimal places) and 901 (unit) were confirmed live through this profile, as were
+# the configuration rows (4, 5, 8, 601, 702, 714, 719, 1500, 1515) read in a later session.
+{"kind": "header", "protocol": "modbus_rtu", "address": 10, "baudrate": 19200, "parity": "none", "port": "fake://f4p-modbus"}
+{"protocol": "modbus_rtu", "label": "read_model_code", "method": "read_holding_registers", "address": 0, "count": 1, "response_words": [5280]}
+{"protocol": "modbus_rtu", "label": "read_serial_number_high", "method": "read_holding_registers", "address": 1, "count": 1, "response_words": [1]}
+{"protocol": "modbus_rtu", "label": "read_serial_number_low", "method": "read_holding_registers", "address": 2, "count": 1, "response_words": [8883]}
+{"protocol": "modbus_rtu", "label": "read_software_id", "method": "read_holding_registers", "address": 3, "count": 1, "response_words": [10]}
+{"protocol": "modbus_rtu", "label": "read_software_revision", "method": "read_holding_registers", "address": 4, "count": 1, "response_words": [2400]}
+{"protocol": "modbus_rtu", "label": "read_manufacturing_date", "method": "read_holding_registers", "address": 5, "count": 1, "response_words": [4110]}
+{"protocol": "modbus_rtu", "label": "read_input_1_type", "method": "read_holding_registers", "address": 8, "count": 1, "response_words": [7]}
+{"protocol": "modbus_rtu", "label": "read_output_1a_type", "method": "read_holding_registers", "address": 16, "count": 1, "response_words": [3]}
+{"protocol": "modbus_rtu", "label": "read_process_value", "method": "read_holding_registers", "address": 100, "count": 1, "response_words": [5970]}
+{"protocol": "modbus_rtu", "label": "read_input_error", "method": "read_holding_registers", "address": 101, "count": 1, "response_words": [0]}
+{"protocol": "modbus_rtu", "label": "read_alarm_1_status", "method": "read_holding_registers", "address": 102, "count": 1, "response_words": [2]}
+{"protocol": "modbus_rtu", "label": "read_output_power", "method": "read_holding_registers", "address": 103, "count": 1, "response_words": [130]}
+{"protocol": "modbus_rtu", "label": "read_cold_junction_value", "method": "read_holding_registers", "address": 104, "count": 1, "response_words": [219]}
+{"protocol": "modbus_rtu", "label": "read_cold_junction_error", "method": "read_holding_registers", "address": 105, "count": 1, "response_words": [0]}
+{"protocol": "modbus_rtu", "label": "read_alarm_2_status", "method": "read_holding_registers", "address": 106, "count": 1, "response_words": [0]}
+{"protocol": "modbus_rtu", "label": "read_auto_manual", "method": "read_holding_registers", "address": 200, "count": 1, "response_words": [1]}
+{"protocol": "modbus_rtu", "label": "read_system_error_status", "method": "read_holding_registers", "address": 209, "count": 1, "response_words": [0]}
+{"protocol": "modbus_rtu", "label": "read_setpoint", "method": "read_holding_registers", "address": 300, "count": 1, "response_words": [6000]}
+{"protocol": "modbus_rtu", "label": "read_alarm_1_low_setpoint", "method": "read_holding_registers", "address": 302, "count": 1, "response_words": [65531]}
+{"protocol": "modbus_rtu", "label": "read_alarm_1_high_setpoint", "method": "read_holding_registers", "address": 303, "count": 1, "response_words": [5]}
+{"protocol": "modbus_rtu", "label": "read_alarm_2_low_setpoint", "method": "read_holding_registers", "address": 321, "count": 1, "response_words": [65436]}
+{"protocol": "modbus_rtu", "label": "read_alarm_2_high_setpoint", "method": "read_holding_registers", "address": 322, "count": 1, "response_words": [100]}
+{"protocol": "modbus_rtu", "label": "read_input_1_sensor_type", "method": "read_holding_registers", "address": 601, "count": 1, "response_words": [9]}
+{"protocol": "modbus_rtu", "label": "read_input_1_decimal", "method": "read_holding_registers", "address": 606, "count": 1, "response_words": [1]}
+{"protocol": "modbus_rtu", "label": "read_alarm_1_type", "method": "read_holding_registers", "address": 702, "count": 1, "response_words": [2]}
+{"protocol": "modbus_rtu", "label": "read_output_1a_high_power_limit", "method": "read_holding_registers", "address": 714, "count": 1, "response_words": [450]}
+{"protocol": "modbus_rtu", "label": "read_alarm_2_type", "method": "read_holding_registers", "address": 719, "count": 1, "response_words": [2]}
+{"protocol": "modbus_rtu", "label": "read_units", "method": "read_holding_registers", "address": 901, "count": 1, "response_words": [1]}
+{"protocol": "modbus_rtu", "label": "read_cold_junction_temperature", "method": "read_holding_registers", "address": 1500, "count": 1, "response_words": [711]}
+{"protocol": "modbus_rtu", "label": "read_line_frequency", "method": "read_holding_registers", "address": 1515, "count": 1, "response_words": [60]}
+{"protocol": "modbus_rtu", "label": "read_show_temperature_unit", "method": "read_holding_registers", "address": 1923, "count": 1, "response_words": [1]}

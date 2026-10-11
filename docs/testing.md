@@ -39,6 +39,12 @@ vars.
 | `hardware_stateful`     | Changes device state (parameter writes).                      | `WATLOWLIB_ENABLE_STATEFUL_TESTS=1` |
 | `hardware_destructive`  | Destructive ops (baud / address change, protocol switch).     | `WATLOWLIB_ENABLE_DESTRUCTIVE_TESTS=1` |
 
+The Series F4P bench smoke test (`tests/test_f4p_hardware.py`) is
+`hardware`-tier and reads `WATLOWLIB_F4P_PORT` (default `COM8`) and
+`WATLOWLIB_F4P_ADDRESS` (default `10`). Run it with
+`pytest -m hardware tests/test_f4p_hardware.py`; it issues FC03 reads
+only and never writes to the blackbody controller.
+
 ## `FakeTransport` — the canonical test double
 
 [`FakeTransport`](../src/watlowlib/transport/fake.py) implements the

@@ -16,6 +16,7 @@ not silently dropped; it is surfaced as an
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from dataclasses import dataclass, field, replace
@@ -35,11 +36,13 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 __all__ = [
+    "F4P_PARAMETERS",
     "PARAMETERS",
     "SD_PARAMETERS",
     "ParameterRegistry",
     "ParameterSpec",
     "RwesFlag",
+    "load_f4p_parameters",
     "load_parameters",
     "load_pm_parameters",
     "load_sd_parameters",
@@ -48,6 +51,7 @@ __all__ = [
 _DATA_PACKAGE = "watlowlib.data"
 _PM_FILENAME = "pm_parameters.json"
 _SD_FILENAME = "sd_parameters.json"
+_F4P_FILENAME = "f4p_parameters.json"
 
 
 class RwesFlag(StrEnum):
@@ -164,6 +168,18 @@ class ParameterSpec:
     than being promoted to ``float`` by ``int * 1.0``. Std Bus rows are
     never scaled (the Std Bus variant ignores this field).
     """
+    decimal_register: int | None = None
+    """Register whose live value sets this parameter's implied decimal places.
+
+    Some bare-register families (the Series F4P) store temperatures as
+    integers whose decimal point is a *device setting* (register 606,
+    "Decimal, Analog Input 1", on the F4P) rather than a fixed
+    property of the register. Rows that follow such a setting name it
+    here; :attr:`scale` then holds only the factory-default assumption
+    until an identity strategy reads the register and rebinds the
+    session registry via :meth:`ParameterRegistry.with_decimal_places`.
+    ``None`` (the default) means :attr:`scale` is fixed.
+    """
 
 
 # Attempts to coax the messy JSON ``range`` field ("0 to 9999",
@@ -274,6 +290,10 @@ def _build_spec(
       map has no class*1000+member scheme — it addresses bare Modbus
       registers, so these are absent and ``parameter_id`` is the
       register number itself.
+    - ``decimal_register`` (optional): register whose live value sets
+      the row's decimal places (see
+      :attr:`ParameterSpec.decimal_register`). F4P temperature rows
+      point at register 606.
     """
     raw_type = raw.get("data_type")
     if raw_type in (None, "None"):
@@ -324,6 +344,8 @@ def _build_spec(
     canonical = str(raw_canonical) if raw_canonical else _canonical_name(str(raw["name"]))
     range_min, range_max = _parse_range(raw.get("range"))
     scale = float(raw.get("scale") or 1.0)
+    raw_decimal_register = raw.get("decimal_register")
+    decimal_register = int(raw_decimal_register) if raw_decimal_register is not None else None
 
     return ParameterSpec(
         parameter_id=parameter_id,
@@ -345,6 +367,7 @@ def _build_spec(
         default=raw.get("default"),
         family_hints=family_hints,
         scale=scale,
+        decimal_register=decimal_register,
     )
 
 
@@ -398,6 +421,11 @@ def load_pm_parameters() -> tuple[ParameterSpec, ...]:
 def load_sd_parameters() -> tuple[ParameterSpec, ...]:
     """Load and return every Series SD parameter spec from the bundled JSON."""
     return load_parameters(_SD_FILENAME, family=ControllerFamily.SD)
+
+
+def load_f4p_parameters() -> tuple[ParameterSpec, ...]:
+    """Load and return every Series F4P parameter spec from the bundled JSON."""
+    return load_parameters(_F4P_FILENAME, family=ControllerFamily.F4P)
 
 
 # Canonical names we explicitly bind from PM parameter IDs. The JSON
@@ -516,6 +544,44 @@ class ParameterRegistry:
                 f"unknown parameter name: {name_or_id!r}",
             ) from exc
 
+    def with_decimal_places(self, register_id: int, places: int) -> ParameterRegistry:
+        """Return a copy whose rows bound to ``register_id`` scale by ``10**-places``.
+
+        Rows whose :attr:`ParameterSpec.decimal_register` equals
+        ``register_id`` get ``scale = 10 ** -places``; every other row
+        is shared unchanged. The lookup tables are rebuilt from the
+        existing index so names, aliases, and collision resolution are
+        preserved exactly. Returns ``self`` when nothing would change.
+
+        Identity strategies call this after reading the device's
+        decimal-places register (Series F4P register 606) and hand the
+        result to :meth:`watlowlib.devices.session.Session.bind_registry`.
+
+        Raises:
+            WatlowValidationError: ``places`` is negative.
+        """
+        if places < 0:
+            raise WatlowValidationError(
+                f"decimal places must be non-negative; got {places}",
+            )
+        scale = 10.0**-places
+        rescaled = {
+            spec.parameter_id: replace(spec, scale=scale)
+            for spec in self._specs
+            if spec.decimal_register == register_id and spec.scale != scale
+        }
+        if not rescaled:
+            return self
+        clone = copy.copy(self)
+        clone._specs = tuple(rescaled.get(spec.parameter_id, spec) for spec in self._specs)
+        clone._by_id = MappingProxyType(
+            {pid: rescaled.get(pid, spec) for pid, spec in self._by_id.items()},
+        )
+        clone._by_name = MappingProxyType(
+            {key: rescaled.get(spec.parameter_id, spec) for key, spec in self._by_name.items()},
+        )
+        return clone
+
     def has(self, name_or_id: str | int) -> bool:
         """Return ``True`` if ``name_or_id`` resolves; never raises."""
         try:
@@ -583,5 +649,23 @@ def _build_sd_registry() -> ParameterRegistry:
         ) from exc
 
 
+def _build_f4p_registry() -> ParameterRegistry:
+    """Build the Series F4P registry.
+
+    Like the SD, F4P rows carry verbatim ``canonical`` names and skip
+    the PM :data:`_NAME_OVERRIDES` table. Temperature rows are bound to
+    register 606 through ``decimal_register`` and load at the factory
+    default of no decimal places (``scale == 1.0``); ``f4p_identify``
+    rescales them from the live register.
+    """
+    try:
+        return ParameterRegistry(load_f4p_parameters(), name_overrides={})
+    except (OSError, json.JSONDecodeError) as exc:
+        raise WatlowProtocolError(
+            f"failed to load F4P parameter registry: {exc}",
+        ) from exc
+
+
 PARAMETERS: ParameterRegistry = _build_default_registry()
 SD_PARAMETERS: ParameterRegistry = _build_sd_registry()
+F4P_PARAMETERS: ParameterRegistry = _build_f4p_registry()

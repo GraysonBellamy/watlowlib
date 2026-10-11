@@ -29,6 +29,9 @@ def test_classify_family_other_known() -> None:
     assert classify_family("RM4E1AA") is ControllerFamily.RM
     assert classify_family("ST1A1AA") is ControllerFamily.ST
     assert classify_family("F4T1XXX") is ControllerFamily.F4T
+    # The IR-301 blackbody's internal controller label.
+    assert classify_family("F4PH-CAAB-01AE") is ControllerFamily.F4P
+    assert classify_family("f4p") is ControllerFamily.F4P
 
 
 def test_classify_family_unknown() -> None:
@@ -138,6 +141,15 @@ def test_capability_priors_limit_seed() -> None:
 
 def test_capability_priors_unknown_seed_none() -> None:
     assert capabilities_for_family(ControllerFamily.UNKNOWN) is Capability.NONE
+
+
+def test_f4p_decodes_to_bare_family_single_loop() -> None:
+    """No per-digit F4P decoder yet: family only, one loop, no capability prior."""
+    part = decode_part_number("F4PH-CAAB-01AE")
+    assert part.family is ControllerFamily.F4P
+    assert part.details == {}
+    assert default_loops(part) == 1
+    assert capabilities_for_family(ControllerFamily.F4P) is Capability.NONE
 
 
 def test_partnumber_default_details_is_empty_mapping() -> None:

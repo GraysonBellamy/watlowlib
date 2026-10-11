@@ -176,6 +176,20 @@ class Session:
         """
         return self._registry
 
+    def bind_registry(self, registry: ParameterRegistry) -> None:
+        """Replace the registry this session encodes and decodes against.
+
+        Identity strategies call this when the device reports decode
+        state the static registry cannot know: the Series F4P reads
+        its input-1 decimal-places register and rebinds a copy of the
+        profile registry carrying the matching
+        :attr:`~watlowlib.registry.parameters.ParameterSpec.scale`
+        (see :meth:`ParameterRegistry.with_decimal_places`). Every
+        later :meth:`execute` builds its command context from the
+        bound registry, so reads and writes lower with the new scale.
+        """
+        self._registry = registry
+
     def dispose(self) -> None:
         """Dispose the bound protocol client."""
         self._client.dispose()

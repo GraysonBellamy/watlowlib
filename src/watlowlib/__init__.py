@@ -26,6 +26,7 @@ from watlowlib.devices import (
     DEFAULT_DISCOVERY_PROTOCOLS,
     DEVICE_PROFILES,
     EZZONE_PROFILE,
+    F4P_PROFILE,
     SERIES_SD_PROFILE,
     AlarmState,
     Availability,
@@ -48,6 +49,7 @@ from watlowlib.devices import (
     classify_family,
     find_devices,
     open_device,
+    profile_named,
 )
 from watlowlib.errors import (
     ErrorContext,
@@ -82,6 +84,7 @@ from watlowlib.firmware import FirmwareVersion
 from watlowlib.manager import DeviceResult, ErrorPolicy, WatlowManager
 from watlowlib.protocol import ProtocolClient, ProtocolKind
 from watlowlib.registry import (
+    F4P_PARAMETERS,
     PARAMETERS,
     SD_PARAMETERS,
     ParameterRegistry,
@@ -125,6 +128,8 @@ __all__ = [
     "DEFAULT_DISCOVERY_PROTOCOLS",
     "DEVICE_PROFILES",
     "EZZONE_PROFILE",
+    "F4P_PARAMETERS",
+    "F4P_PROFILE",
     "PARAMETERS",
     "SD_PARAMETERS",
     "SERIES_SD_PROFILE",
@@ -207,6 +212,7 @@ __all__ = [
     "find_devices",
     "open_device",
     "pipe",
+    "profile_named",
     "record",
     "sample_to_row",
 ]

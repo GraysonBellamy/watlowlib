@@ -738,3 +738,132 @@ async def test_find_result_carries_flat_baudrate_and_health(
     assert rows[0].baudrate == 19200
     assert rows[0].device_info is not None
     assert rows[0].device_info.health is DeviceHealth.OK
+
+
+# --- Series F4P over profiles ---------------------------------------
+
+
+def _f4p_identity_slave() -> Any:
+    """A FakeSlave scripted with the six registers ``f4p_identify`` reads."""
+    from watlowlib.devices.profile import F4P_MODEL_CODE
+    from watlowlib.transport.fake import FakeSlave
+
+    return FakeSlave(
+        {
+            ("read_holding_registers", 0): (F4P_MODEL_CODE,),
+            ("read_holding_registers", 1): (1,),
+            ("read_holding_registers", 2): (8883,),
+            ("read_holding_registers", 3): (10,),
+            ("read_holding_registers", 606): (1,),
+            ("read_holding_registers", 901): (1,),
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_find_devices_profiles_finds_f4p_at_19200_address_10(
+    monkeypatch: pytest.MonkeyPatch,
+    anyio_backend: object,
+) -> None:
+    """The bench IR-301: F4P profile, 19200 8-N-1, Modbus address 10, default bauds."""
+    from watlowlib import F4P_PROFILE, ControllerFamily
+    from watlowlib.devices.models import DeviceHealth
+
+    _ = anyio_backend
+    slave = _f4p_identity_slave()
+    fakes = _empty_fakes()
+    fakes.modbus_scripts[("COM8", 19200)] = slave
+    _patch_factory(monkeypatch, fakes)
+
+    rows = await find_devices(ports=["COM8"], addresses=(10,), profiles=(F4P_PROFILE,))
+
+    # Default sweep is (38400, 19200, 9600); the F4P only speaks the last
+    # two, so 38400 is pruned and no row is emitted for it.
+    assert [(r.baudrate, r.address, r.protocol) for r in rows] == [
+        (19200, 10, ProtocolKind.MODBUS_RTU),
+        (9600, 10, ProtocolKind.MODBUS_RTU),
+    ]
+    assert all(combo[1] != 38400 for combo in fakes.seen_combos)
+
+    hit, miss = rows
+    assert hit.ok is True
+    assert hit.error is None
+    assert hit.device_info is not None
+    assert hit.device_info.family is ControllerFamily.F4P
+    assert hit.device_info.hardware_id == 5280
+    assert hit.device_info.serial_number == "018883"
+    assert hit.device_info.health is DeviceHealth.OK
+    assert hit.device_info.address == 10
+    # The row's framing is what opened the port: 19200 8-N-1 from the profile.
+    assert hit.device_info.serial_settings.baudrate == 19200
+    assert hit.device_info.serial_settings.parity is Parity.NONE
+    assert miss.ok is False
+    assert miss.device_info is None
+    # Discovery stays read-only.
+    assert slave.writes == []
+
+
+@pytest.mark.anyio
+async def test_find_devices_explicit_baudrates_override_profile_pruning(
+    monkeypatch: pytest.MonkeyPatch,
+    anyio_backend: object,
+) -> None:
+    """An explicit ``baudrates`` is the caller's rig knowledge and is probed as given."""
+    from watlowlib import F4P_PROFILE
+
+    _ = anyio_backend
+    fakes = _empty_fakes()
+    _patch_factory(monkeypatch, fakes)
+
+    rows = await find_devices(
+        ports=["COM8"], addresses=(10,), baudrates=(38400,), profiles=(F4P_PROFILE,)
+    )
+
+    assert [(r.baudrate, r.ok) for r in rows] == [(38400, False)]
+    assert fakes.seen_combos == [("COM8", 38400, ProtocolKind.MODBUS_RTU)]
+
+
+@pytest.mark.anyio
+async def test_find_devices_device_profiles_sweep_prunes_only_f4p(
+    monkeypatch: pytest.MonkeyPatch,
+    anyio_backend: object,
+) -> None:
+    """``DEVICE_PROFILES`` at default bauds: PM + SD at every baud, F4P at 19200 / 9600."""
+    from watlowlib import DEVICE_PROFILES
+
+    _ = anyio_backend
+    fakes = _empty_fakes()
+    _patch_factory(monkeypatch, fakes)
+
+    rows = await find_devices(ports=["/dev/fake"], addresses=(1,), profiles=DEVICE_PROFILES)
+
+    per_baud: dict[int, int] = {}
+    for row in rows:
+        assert row.baudrate is not None
+        per_baud[row.baudrate] = per_baud.get(row.baudrate, 0) + 1
+    assert per_baud == {38400: 2, 19200: 3, 9600: 3}
+
+
+@pytest.mark.anyio
+async def test_find_devices_f4p_profile_rejects_foreign_model(
+    monkeypatch: pytest.MonkeyPatch,
+    anyio_backend: object,
+) -> None:
+    """A device whose register 0 is not 5280 is reported as absent, not as an F4P."""
+    from watlowlib import F4P_PROFILE
+    from watlowlib.transport.fake import FakeSlave
+
+    _ = anyio_backend
+    slave = FakeSlave({("read_holding_registers", 0): (1234,)})
+    fakes = _empty_fakes()
+    fakes.modbus_scripts[("COM8", 19200)] = slave
+    _patch_factory(monkeypatch, fakes)
+
+    rows = await find_devices(
+        ports=["COM8"], addresses=(10,), baudrates=(19200,), profiles=(F4P_PROFILE,)
+    )
+
+    assert len(rows) == 1
+    assert rows[0].ok is False
+    assert rows[0].device_info is None
+    assert rows[0].error is not None

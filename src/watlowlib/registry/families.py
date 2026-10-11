@@ -46,10 +46,23 @@ class ControllerFamily(StrEnum):
     EZZONE_LIMIT = "ezzone_limit"  # EZ-ZONE Limit
     F4T = "f4t"  # F4T
     SD = "sd"  # Series SD (Modbus RTU; bare-register map, no Std Bus)
+    F4P = "f4p"  # Series F4P (Modbus RTU; bare-register map, single channel)
     UNKNOWN = "unknown"
 
 
 # --- Family discriminator -------------------------------------------
+
+
+#: Leading part-number characters → family, checked in order. ``F4T``
+#: and ``F4P`` share a stem but never collide (distinct third letter).
+_FAMILY_PREFIXES: tuple[tuple[str, ControllerFamily], ...] = (
+    ("PM", ControllerFamily.PM),
+    ("RM", ControllerFamily.RM),
+    ("ST", ControllerFamily.ST),
+    ("F4T", ControllerFamily.F4T),
+    ("F4P", ControllerFamily.F4P),
+    ("SD", ControllerFamily.SD),
+)
 
 
 def classify_family(part_number: str) -> ControllerFamily:
@@ -59,16 +72,9 @@ def classify_family(part_number: str) -> ControllerFamily:
     decoding is in :func:`decode_part_number`.
     """
     head = part_number.strip().upper()
-    if head.startswith("PM"):
-        return ControllerFamily.PM
-    if head.startswith("RM"):
-        return ControllerFamily.RM
-    if head.startswith("ST"):
-        return ControllerFamily.ST
-    if head.startswith("F4T"):
-        return ControllerFamily.F4T
-    if head.startswith("SD"):
-        return ControllerFamily.SD
+    for prefix, family in _FAMILY_PREFIXES:
+        if head.startswith(prefix):
+            return family
     return ControllerFamily.UNKNOWN
 
 
